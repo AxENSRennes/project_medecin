@@ -252,7 +252,7 @@ def compute_cohens_d(
     pooled_std = np.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2))
 
     if pooled_std == 0:
-        return 0.0
+        return np.nan
 
     d = (np.mean(g1) - np.mean(g2)) / pooled_std
     return d

@@ -820,6 +820,7 @@ def postprocess_recording(
         Tuple of (processed DataFrame, report dict with statistics)
     """
     df = df.copy()
+    rows_before = len(df)
     report = {}
 
     # Calculate total duration for statistics
@@ -866,7 +867,7 @@ def postprocess_recording(
 
     # Summary statistics
     report["summary"] = {
-        "rows_before": len(df),
+        "rows_before": rows_before,
         "rows_after": len(df),
         "total_duration_ms": total_duration_ms,
     }
