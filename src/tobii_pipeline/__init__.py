@@ -1,9 +1,15 @@
 """Tobii eye-tracking data pipeline.
 
-A toolkit for loading, cleaning, and processing Tobii eye-tracking data.
+A toolkit for loading, cleaning, processing, and analyzing Tobii eye-tracking data.
 
 Example usage:
-    from tobii_pipeline import load_recording, clean_recording, save_parquet
+    from tobii_pipeline import (
+        load_recording,
+        clean_recording,
+        filter_eye_tracker,
+        postprocess_recording,
+        save_parquet,
+    )
 
     # Load and clean a single recording
     df = load_recording("path/to/recording.tsv")
@@ -12,11 +18,16 @@ Example usage:
     # Filter to eye tracker data only
     df_gaze = filter_eye_tracker(df_clean)
 
-    # Keep only valid gaze samples
-    df_valid = filter_valid_gaze(df_gaze)
+    # Post-process: interpolate missing data, handle blinks, etc.
+    df_processed, report = postprocess_recording(df_gaze)
 
     # Save to Parquet for faster future access
-    save_parquet(df_valid, "output/recording_clean.parquet")
+    save_parquet(df_processed, "output/recording_processed.parquet")
+
+    # For analysis:
+    from tobii_pipeline.analysis import compute_recording_summary, plot_recording_summary
+    summary = compute_recording_summary(df_processed)
+    fig = plot_recording_summary(df_processed)
 """
 
 from .cleaner import (
@@ -39,6 +50,29 @@ from .loader import (
     load_recordings_from_dir,
 )
 from .parser import parse_filename
+from .postprocess import (
+    BlinkEvent,
+    GapInfo,
+    compute_gaze_velocity,
+    compute_missing_rate,
+    detect_blinks,
+    detect_gaps,
+    detect_gaze_outliers,
+    detect_pupil_outliers,
+    detect_velocity_outliers,
+    drop_high_missing_rows,
+    filter_physiological_range,
+    get_blink_statistics,
+    get_gap_statistics,
+    get_interpolatable_columns,
+    interpolate_missing,
+    mark_blinks,
+    mark_gaps,
+    postprocess_recording,
+    remove_blinks,
+    remove_outliers,
+    split_at_gaps,
+)
 from .utils import (
     batch_process,
     get_data_summary,
@@ -70,6 +104,28 @@ __all__ = [
     "get_motion_columns",
     "select_gaze_data",
     "select_motion_data",
+    # Postprocess
+    "interpolate_missing",
+    "compute_missing_rate",
+    "drop_high_missing_rows",
+    "get_interpolatable_columns",
+    "detect_pupil_outliers",
+    "detect_gaze_outliers",
+    "detect_velocity_outliers",
+    "compute_gaze_velocity",
+    "remove_outliers",
+    "filter_physiological_range",
+    "detect_blinks",
+    "mark_blinks",
+    "remove_blinks",
+    "get_blink_statistics",
+    "detect_gaps",
+    "get_gap_statistics",
+    "mark_gaps",
+    "split_at_gaps",
+    "postprocess_recording",
+    "BlinkEvent",
+    "GapInfo",
     # Utils
     "save_parquet",
     "load_parquet",

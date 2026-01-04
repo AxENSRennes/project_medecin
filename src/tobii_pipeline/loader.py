@@ -12,6 +12,7 @@ from .parser import parse_filename
 def load_recording(
     filepath: str | Path,
     chunksize: int | None = None,
+    nrows: int | None = None,
 ) -> pd.DataFrame | Iterator[pd.DataFrame]:
     """Load a single Tobii TSV recording file.
 
@@ -19,6 +20,7 @@ def load_recording(
         filepath: Path to the TSV file
         chunksize: If specified, return an iterator of DataFrames with this many rows each.
                    Useful for processing large files without loading into memory.
+        nrows: If specified, only read this many rows. Useful for testing.
 
     Returns:
         DataFrame if chunksize is None, otherwise an Iterator of DataFrames
@@ -30,6 +32,9 @@ def load_recording(
         "sep": "\t",
         "low_memory": False,
     }
+
+    if nrows is not None:
+        read_kwargs["nrows"] = nrows
 
     if chunksize:
         return pd.read_csv(filepath, chunksize=chunksize, **read_kwargs)

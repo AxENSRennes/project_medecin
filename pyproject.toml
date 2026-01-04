@@ -11,6 +11,8 @@ dependencies = [
     "pandas>=2.0.0",
     "pyarrow>=14.0.0",
     "tqdm>=4.65.0",
+    "matplotlib>=3.5.0",
+    "scipy>=1.9.0",
 ]
 
 [project.optional-dependencies]
@@ -59,4 +61,13 @@ disable = [
     "C0114",  # missing-module-docstring
     "C0115",  # missing-class-docstring
     "R0903",  # too-few-public-methods
+    "R0913",  # too-many-arguments (common for flexible APIs)
+    "R0917",  # too-many-positional-arguments
+    "R0914",  # too-many-local-variables
+    "R0911",  # too-many-return-statements
+    "R0801",  # duplicate-code (column name lists are intentionally similar)
+    "C0103",  # invalid-name (U for Mann-Whitney is standard notation)
+    "C0415",  # import-outside-toplevel (circular import avoidance)
+    "W0718",  # broad-exception-caught (acceptable for batch processing)
+    "E1121",  # too-many-function-args (false positive with numpy)
 ]
