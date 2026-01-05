@@ -24,7 +24,7 @@ class TestLoadRecording:
 
     def test_load_recording_with_chunksize(self, tmp_path):
         """Load with chunking returns iterator."""
-        tsv_content = "col1\tcol2\n" + "\n".join(f"{i}\t{i+1}" for i in range(10))
+        tsv_content = "col1\tcol2\n" + "\n".join(f"{i}\t{i + 1}" for i in range(10))
         tsv_file = tmp_path / "test_recording.tsv"
         tsv_file.write_text(tsv_content)
 

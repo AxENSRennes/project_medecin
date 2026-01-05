@@ -41,7 +41,21 @@ htmlcov/
 
 # Processed data outputs
 Data/processed/
+Data/
+*.tsv
+*.csv
+*.xlsx
 
 # OS
 .DS_Store
 Thumbs.db
+
+#LLM
+CLAUDE.md
+purrfect-puzzling-map.md
+
+#Latex
+*.aux
+*.log
+*.out
+
