@@ -7,8 +7,8 @@ Generates three main figures:
     - Figure 3: Behavioral analysis (BORIS integration)
 
 Usage:
-    python scripts/run_analysis.py              # Sampled data (100k rows/file)
-    python scripts/run_analysis.py --full       # Full data
+    python scripts/run_analysis.py              # Full data (default)
+    python scripts/run_analysis.py --nrows 100000  # Sampled data (100k rows/file)
     python scripts/run_analysis.py --nrows 50000  # Custom sample size
     python scripts/run_analysis.py --no-boris   # Skip BORIS integration
 """
@@ -430,13 +430,13 @@ def main():
     parser.add_argument(
         "--full",
         action="store_true",
-        help="Process full data (no row limit)",
+        help="Process full data (no row limit) - this is now the default behavior",
     )
     parser.add_argument(
         "--nrows",
         type=int,
-        default=100000,
-        help="Number of rows per recording (default: 100000)",
+        default=None,
+        help="Number of rows per recording (default: None, processes all rows)",
     )
     parser.add_argument(
         "--no-boris",
@@ -452,10 +452,10 @@ def main():
     print("=" * 60)
     print("SDS2 Eye-Tracking Analysis")
     print("=" * 60)
-    if nrows:
-        print(f"Mode: Sampled ({nrows:,} rows per file)")
-    else:
+    if nrows is None:
         print("Mode: Full data")
+    else:
+        print(f"Mode: Sampled ({nrows:,} rows per file)")
     print(f"BORIS integration: {'enabled' if include_boris else 'disabled'}")
 
     run_analysis(nrows=nrows, include_boris=include_boris)
