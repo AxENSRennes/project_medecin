@@ -416,25 +416,4 @@ Un effet size (d de Cohen) complete l'interpretation :
 
 - Consultez le notebook `notebooks/exemple_analyse.ipynb` pour un tutoriel interactif
 - Les docstrings dans le code source contiennent des explications detaillees
-- Pour les questions techniques : ouvrir une issue sur le depot
 
----
-
-## Ressources pour aller plus loin
-
-### Eye-tracking
-- Holmqvist, K. et al. (2011). *Eye Tracking: A comprehensive guide to methods and measures*
-- Duchowski, A. (2017). *Eye Tracking Methodology: Theory and Practice*
-
-### Analyse statistique
-- Field, A. (2017). *Discovering Statistics Using IBM SPSS Statistics*
-
-### Python pour la science des donnees
-- McKinney, W. (2017). *Python for Data Analysis*
-- VanderPlas, J. (2016). *Python Data Science Handbook*
-
----
-
-## Licence et citation
-
-Ce projet est developpe dans le cadre de l'etude SDS2. Pour toute utilisation des donnees ou du code, veuillez contacter les responsables de l'etude.
