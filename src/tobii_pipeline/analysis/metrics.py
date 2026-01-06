@@ -1,7 +1,21 @@
-"""Core metric calculations for eye-tracking data."""
+"""Core metric calculations for eye-tracking data.
+
+Event metrics (fixations, saccades) are computed using pymovements library.
+"""
 
 import numpy as np
 import pandas as pd
+
+from tobii_pipeline.adapters.pymovements_adapter import (
+    apply_pix2deg,
+    apply_pos2vel,
+    compute_event_properties,
+    detect_events_ivt,
+    df_to_gaze_dataframe,
+    events_to_df,
+    get_fixation_stats,
+    get_saccade_stats,
+)
 
 # =============================================================================
 # Data Quality Metrics
@@ -274,181 +288,139 @@ def compute_pupil_over_time(
 
 
 # =============================================================================
-# Fixation Metrics
+# Event Metrics (via pymovements)
 # =============================================================================
 
 
-def compute_fixation_count(df: pd.DataFrame) -> int:
-    """Count unique fixations in recording.
+def compute_events(
+    df: pd.DataFrame,
+    velocity_threshold: float = 30.0,
+    minimum_duration: int = 100,
+    screen_width_px: int = 1920,
+    screen_height_px: int = 1080,
+) -> pd.DataFrame:
+    """Detect fixations and saccades using pymovements I-VT algorithm.
 
     Args:
-        df: Input DataFrame with Eye movement type and index columns
+        df: Cleaned Tobii DataFrame with gaze data.
+        velocity_threshold: Velocity threshold in deg/s for fixation detection.
+        minimum_duration: Minimum event duration in ms.
+        screen_width_px: Screen width in pixels.
+        screen_height_px: Screen height in pixels.
 
     Returns:
-        Number of fixations
+        DataFrame with detected events including:
+        - name: Event type (fixation, saccade)
+        - onset: Start time in ms
+        - offset: End time in ms
+        - duration: Event duration in ms
+        - amplitude: Movement amplitude in degrees
+        - dispersion: Spatial dispersion in degrees
+        - peak_velocity: Maximum velocity in deg/s
     """
-    if "Eye movement type" not in df.columns:
-        return 0
+    # Convert to pymovements format
+    gaze = df_to_gaze_dataframe(
+        df,
+        screen_width_px=screen_width_px,
+        screen_height_px=screen_height_px,
+    )
 
-    fixation_df = df[df["Eye movement type"] == "Fixation"]
+    # Apply transformations
+    gaze = apply_pix2deg(gaze)
+    gaze = apply_pos2vel(gaze)
 
-    if "Eye movement type index" in df.columns:
-        return fixation_df["Eye movement type index"].nunique()
+    # Detect events using I-VT
+    gaze = detect_events_ivt(
+        gaze,
+        velocity_threshold=velocity_threshold,
+        minimum_duration=minimum_duration,
+    )
 
-    return 0
+    # Compute event properties
+    gaze = compute_event_properties(gaze)
+
+    # Extract and return events
+    return events_to_df(gaze)
 
 
-def compute_fixation_durations(df: pd.DataFrame) -> pd.Series:
-    """Get duration of each unique fixation.
+def compute_fixation_stats(
+    df: pd.DataFrame,
+    events_df: pd.DataFrame | None = None,
+    velocity_threshold: float = 30.0,
+) -> dict:
+    """Compute comprehensive fixation statistics using pymovements.
 
     Args:
-        df: Input DataFrame with eye movement columns
+        df: Input DataFrame with gaze data (used if events_df is None).
+        events_df: Pre-computed events DataFrame from compute_events().
+            If None, events are detected from df.
+        velocity_threshold: Velocity threshold for event detection.
 
     Returns:
-        Series of fixation durations in milliseconds
+        Dict with fixation statistics including:
+        - count: Number of fixations
+        - duration_mean_ms: Mean fixation duration
+        - duration_std_ms: Std deviation of fixation duration
+        - duration_min_ms: Minimum fixation duration
+        - duration_max_ms: Maximum fixation duration
+        - dispersion_mean_deg: Mean spatial dispersion (degrees)
+        - dispersion_std_deg: Std deviation of dispersion
     """
-    if "Eye movement type" not in df.columns or "Gaze event duration" not in df.columns:
-        return pd.Series(dtype=float)
+    if events_df is None:
+        try:
+            events_df = compute_events(df, velocity_threshold=velocity_threshold)
+        except Exception:
+            return {
+                "count": 0,
+                "duration_mean_ms": None,
+                "duration_std_ms": None,
+                "duration_min_ms": None,
+                "duration_max_ms": None,
+                "dispersion_mean_deg": None,
+                "dispersion_std_deg": None,
+            }
 
-    if "Eye movement type index" not in df.columns:
-        return pd.Series(dtype=float)
-
-    fixation_df = df[df["Eye movement type"] == "Fixation"]
-
-    # Get the first duration value for each unique fixation
-    durations = fixation_df.groupby("Eye movement type index")["Gaze event duration"].first()
-
-    return durations
+    return get_fixation_stats(events_df)
 
 
-def compute_fixation_stats(df: pd.DataFrame) -> dict:
-    """Compute comprehensive fixation statistics.
+def compute_saccade_stats(
+    df: pd.DataFrame,
+    events_df: pd.DataFrame | None = None,
+    velocity_threshold: float = 30.0,
+) -> dict:
+    """Compute comprehensive saccade statistics using pymovements.
 
     Args:
-        df: Input DataFrame with eye movement columns
+        df: Input DataFrame with gaze data (used if events_df is None).
+        events_df: Pre-computed events DataFrame from compute_events().
+            If None, events are detected from df.
+        velocity_threshold: Velocity threshold for event detection.
 
     Returns:
-        Dict with fixation statistics
+        Dict with saccade statistics including:
+        - count: Number of saccades
+        - duration_mean_ms: Mean saccade duration
+        - duration_std_ms: Std deviation of saccade duration
+        - amplitude_mean_deg: Mean saccade amplitude (degrees)
+        - amplitude_std_deg: Std deviation of amplitude
+        - peak_velocity_mean_deg_s: Mean peak velocity (deg/s)
+        - peak_velocity_std_deg_s: Std deviation of peak velocity
     """
-    durations = compute_fixation_durations(df)
+    if events_df is None:
+        try:
+            events_df = compute_events(df, velocity_threshold=velocity_threshold)
+        except Exception:
+            return {
+                "count": 0,
+                "duration_mean_ms": None,
+                "duration_std_ms": None,
+                "amplitude_mean_deg": None,
+                "amplitude_std_deg": None,
+                "peak_velocity_mean_deg_s": None,
+                "peak_velocity_std_deg_s": None,
+            }
 
-    result = {
-        "count": len(durations),
-        "mean_duration": np.nan,
-        "std_duration": np.nan,
-        "min_duration": np.nan,
-        "max_duration": np.nan,
-        "total_fixation_time": np.nan,
-        "fixation_rate": np.nan,
-    }
-
-    if len(durations) == 0:
-        return result
-
-    result["mean_duration"] = durations.mean()
-    result["std_duration"] = durations.std()
-    result["min_duration"] = durations.min()
-    result["max_duration"] = durations.max()
-    result["total_fixation_time"] = durations.sum()
-
-    # Compute fixation rate (fixations per second)
-    if "Recording timestamp" in df.columns and len(df) > 1:
-        total_time_s = (
-            df["Recording timestamp"].iloc[-1] - df["Recording timestamp"].iloc[0]
-        ) / 1_000_000
-        if total_time_s > 0:
-            result["fixation_rate"] = len(durations) / total_time_s
-
-    return result
-
-
-# =============================================================================
-# Saccade Metrics
-# =============================================================================
-
-
-def compute_saccade_count(df: pd.DataFrame) -> int:
-    """Count unique saccades in recording.
-
-    Args:
-        df: Input DataFrame with Eye movement type and index columns
-
-    Returns:
-        Number of saccades
-    """
-    if "Eye movement type" not in df.columns:
-        return 0
-
-    saccade_df = df[df["Eye movement type"] == "Saccade"]
-
-    if "Eye movement type index" in df.columns:
-        return saccade_df["Eye movement type index"].nunique()
-
-    return 0
-
-
-def compute_saccade_durations(df: pd.DataFrame) -> pd.Series:
-    """Get duration of each unique saccade.
-
-    Args:
-        df: Input DataFrame with eye movement columns
-
-    Returns:
-        Series of saccade durations in milliseconds
-    """
-    if "Eye movement type" not in df.columns or "Gaze event duration" not in df.columns:
-        return pd.Series(dtype=float)
-
-    if "Eye movement type index" not in df.columns:
-        return pd.Series(dtype=float)
-
-    saccade_df = df[df["Eye movement type"] == "Saccade"]
-
-    # Get the first duration value for each unique saccade
-    durations = saccade_df.groupby("Eye movement type index")["Gaze event duration"].first()
-
-    return durations
-
-
-def compute_saccade_stats(df: pd.DataFrame) -> dict:
-    """Compute comprehensive saccade statistics.
-
-    Args:
-        df: Input DataFrame with eye movement columns
-
-    Returns:
-        Dict with saccade statistics
-    """
-    durations = compute_saccade_durations(df)
-
-    result = {
-        "count": len(durations),
-        "mean_duration": np.nan,
-        "std_duration": np.nan,
-        "min_duration": np.nan,
-        "max_duration": np.nan,
-        "total_saccade_time": np.nan,
-        "saccade_rate": np.nan,
-    }
-
-    if len(durations) == 0:
-        return result
-
-    result["mean_duration"] = durations.mean()
-    result["std_duration"] = durations.std()
-    result["min_duration"] = durations.min()
-    result["max_duration"] = durations.max()
-    result["total_saccade_time"] = durations.sum()
-
-    # Compute saccade rate (saccades per second)
-    if "Recording timestamp" in df.columns and len(df) > 1:
-        total_time_s = (
-            df["Recording timestamp"].iloc[-1] - df["Recording timestamp"].iloc[0]
-        ) / 1_000_000
-        if total_time_s > 0:
-            result["saccade_rate"] = len(durations) / total_time_s
-
-    return result
+    return get_saccade_stats(events_df)
 
 
 # =============================================================================
@@ -456,18 +428,25 @@ def compute_saccade_stats(df: pd.DataFrame) -> dict:
 # =============================================================================
 
 
-def compute_recording_summary(df: pd.DataFrame) -> dict:
+def compute_recording_summary(
+    df: pd.DataFrame,
+    detect_events: bool = True,
+    velocity_threshold: float = 30.0,
+) -> dict:
     """Compute all key metrics for a recording.
 
     Convenience function that calls all metric functions.
 
     Args:
         df: Input DataFrame (cleaned and filtered eye tracker data)
+        detect_events: Whether to detect fixations/saccades via pymovements.
+            Set to False for faster execution if event metrics not needed.
+        velocity_threshold: Velocity threshold for event detection.
 
     Returns:
         Dict with all computed metrics organized by category
     """
-    return {
+    summary = {
         "quality": {
             "validity_rate": compute_validity_rate(df),
             "validity_rate_either": compute_validity_rate(df, both_eyes=False),
@@ -482,6 +461,35 @@ def compute_recording_summary(df: pd.DataFrame) -> dict:
             "stats": compute_pupil_stats(df),
             "variability": compute_pupil_variability(df),
         },
-        "fixation": compute_fixation_stats(df),
-        "saccade": compute_saccade_stats(df),
     }
+
+    if detect_events:
+        # Compute events once and reuse for both fixation and saccade stats
+        try:
+            events_df = compute_events(df, velocity_threshold=velocity_threshold)
+            summary["fixation"] = get_fixation_stats(events_df)
+            summary["saccade"] = get_saccade_stats(events_df)
+        except Exception:
+            summary["fixation"] = compute_fixation_stats(df, events_df=None)
+            summary["saccade"] = compute_saccade_stats(df, events_df=None)
+    else:
+        summary["fixation"] = {
+            "count": 0,
+            "duration_mean_ms": None,
+            "duration_std_ms": None,
+            "duration_min_ms": None,
+            "duration_max_ms": None,
+            "dispersion_mean_deg": None,
+            "dispersion_std_deg": None,
+        }
+        summary["saccade"] = {
+            "count": 0,
+            "duration_mean_ms": None,
+            "duration_std_ms": None,
+            "amplitude_mean_deg": None,
+            "amplitude_std_deg": None,
+            "peak_velocity_mean_deg_s": None,
+            "peak_velocity_std_deg_s": None,
+        }
+
+    return summary

@@ -2,6 +2,9 @@
 
 A toolkit for loading, cleaning, processing, and analyzing Tobii eye-tracking data.
 
+Event detection uses pymovements library (I-VT, I-DT algorithms).
+Blink interpolation uses MNE-Python.
+
 Example usage:
     from tobii_pipeline import (
         load_recording,
@@ -18,7 +21,7 @@ Example usage:
     # Filter to eye tracker data only
     df_gaze = filter_eye_tracker(df_clean)
 
-    # Post-process: interpolate missing data, handle blinks, etc.
+    # Post-process: interpolate blinks (MNE), detect events (pymovements)
     df_processed, report = postprocess_recording(df_gaze)
 
     # Save to Parquet for faster future access
@@ -51,25 +54,19 @@ from .loader import (
 )
 from .parser import parse_filename
 from .postprocess import (
-    BlinkEvent,
     GapInfo,
-    compute_gaze_velocity,
     compute_missing_rate,
-    detect_blinks,
+    detect_events,
     detect_gaps,
     detect_gaze_outliers,
     detect_pupil_outliers,
-    detect_velocity_outliers,
     drop_high_missing_rows,
     filter_physiological_range,
-    get_blink_statistics,
     get_gap_statistics,
     get_interpolatable_columns,
     interpolate_missing,
-    mark_blinks,
     mark_gaps,
     postprocess_recording,
-    remove_blinks,
     remove_outliers,
     split_at_gaps,
 )
@@ -111,20 +108,14 @@ __all__ = [
     "get_interpolatable_columns",
     "detect_pupil_outliers",
     "detect_gaze_outliers",
-    "detect_velocity_outliers",
-    "compute_gaze_velocity",
     "remove_outliers",
     "filter_physiological_range",
-    "detect_blinks",
-    "mark_blinks",
-    "remove_blinks",
-    "get_blink_statistics",
+    "detect_events",
     "detect_gaps",
     "get_gap_statistics",
     "mark_gaps",
     "split_at_gaps",
     "postprocess_recording",
-    "BlinkEvent",
     "GapInfo",
     # Utils
     "save_parquet",

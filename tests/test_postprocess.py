@@ -5,19 +5,15 @@ import pandas as pd
 import pytest
 
 from tobii_pipeline.postprocess import (
-    BlinkEvent,
     compute_missing_rate,
-    detect_blinks,
     detect_gaps,
     detect_gaze_outliers,
     detect_pupil_outliers,
     drop_high_missing_rows,
     filter_physiological_range,
-    get_blink_statistics,
     get_gap_statistics,
     get_interpolatable_columns,
     interpolate_missing,
-    mark_blinks,
     mark_gaps,
     postprocess_recording,
     remove_outliers,
@@ -226,66 +222,6 @@ class TestDetectGaps:
         assert len(gaps) == 0
 
 
-class TestDetectBlinks:
-    """Tests for blink detection."""
-
-    def test_detects_blink_pattern(self):
-        """Detects blink from validity pattern."""
-        # Create a blink: 200ms of invalid data at 100Hz = 20 samples
-        # Timestamps in microseconds
-        timestamps = list(range(0, 500000, 10000))  # 50 samples at 100Hz
-        validity = ["Valid"] * 15 + ["Invalid"] * 20 + ["Valid"] * 15
-
-        df = pd.DataFrame(
-            {
-                "Recording timestamp": timestamps,
-                "Validity left": validity,
-                "Validity right": validity,
-            }
-        )
-        blinks = detect_blinks(df)
-        assert len(blinks) == 1
-        assert 150 < blinks[0].duration_ms < 250
-
-    def test_respects_duration_bounds(self):
-        """Ignores events outside blink duration range."""
-        # Create a very short invalid period (30ms = 3 samples)
-        timestamps = list(range(0, 100000, 10000))
-        validity = ["Valid"] * 5 + ["Invalid"] * 3 + ["Valid"] * 2
-
-        df = pd.DataFrame(
-            {
-                "Recording timestamp": timestamps,
-                "Validity left": validity,
-                "Validity right": validity,
-            }
-        )
-        blinks = detect_blinks(df, min_duration_ms=50)
-        assert len(blinks) == 0
-
-
-class TestBlinkStatistics:
-    """Tests for blink statistics."""
-
-    def test_empty_blinks(self):
-        """Returns zeros for empty blink list."""
-        stats = get_blink_statistics([])
-        assert stats["count"] == 0
-        assert stats["mean_duration_ms"] == 0.0
-
-    def test_blink_statistics(self):
-        """Computes correct statistics."""
-        blinks = [
-            BlinkEvent(0, 10, 0, 100000, 100),
-            BlinkEvent(100, 110, 1000000, 1200000, 200),
-        ]
-        stats = get_blink_statistics(blinks)
-        assert stats["count"] == 2
-        assert stats["mean_duration_ms"] == 150.0
-        assert stats["min_duration_ms"] == 100.0
-        assert stats["max_duration_ms"] == 200.0
-
-
 class TestGapStatistics:
     """Tests for gap statistics."""
 
@@ -356,7 +292,12 @@ class TestPostprocessRecording:
                 "Validity right": ["Valid", "Valid", "Valid", "Valid"],
             }
         )
-        result_df, report = postprocess_recording(df)
+        # Disable blink interpolation and event detection for basic test
+        result_df, report = postprocess_recording(
+            df,
+            interpolate_blinks=False,
+            detect_eye_events=False,
+        )
 
         assert isinstance(result_df, pd.DataFrame)
         assert isinstance(report, dict)
@@ -377,7 +318,8 @@ class TestPostprocessRecording:
             df,
             interpolate=True,
             remove_physiological_outliers=False,
-            detect_and_handle_blinks=False,
+            interpolate_blinks=False,
+            detect_eye_events=False,
         )
         # After interpolation, the NaN should be filled
         assert result_df["Gaze point X"].iloc[1] == 200.0
@@ -409,22 +351,6 @@ class TestGetInterpolatableColumns:
         assert "Gaze point Y" in cols
         assert "Pupil diameter left" in cols
         assert "Pupil diameter right" in cols
-
-
-class TestMarkBlinks:
-    """Tests for mark_blinks function."""
-
-    def test_adds_blink_column(self):
-        """Adds is_blink column to DataFrame."""
-        df = pd.DataFrame(
-            {
-                "Recording timestamp": [0, 10000, 20000],
-                "Validity left": ["Valid", "Valid", "Valid"],
-                "Validity right": ["Valid", "Valid", "Valid"],
-            }
-        )
-        result = mark_blinks(df, blinks=[])
-        assert "is_blink" in result.columns
 
 
 class TestMarkGaps:

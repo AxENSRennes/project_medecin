@@ -2,8 +2,9 @@
 
 This module provides data quality improvements including:
 - Missing data handling (interpolation, fill, removal)
-- Outlier detection and removal (pupil, gaze, velocity)
-- Blink detection and handling
+- Outlier detection and removal (pupil, gaze)
+- Blink interpolation (via MNE)
+- Event detection (via pymovements)
 - Gap detection and splitting
 """
 
@@ -13,6 +14,20 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from tobii_pipeline.adapters.mne_adapter import (
+    get_blink_statistics_mne,
+    interpolate_blinks_mne,
+)
+from tobii_pipeline.adapters.pymovements_adapter import (
+    apply_pix2deg,
+    apply_pos2vel,
+    compute_event_properties,
+    detect_events_idt,
+    detect_events_ivt,
+    df_to_gaze_dataframe,
+    events_to_df,
+)
+
 # Screen dimensions (Tobii recording setup)
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
@@ -21,17 +36,9 @@ SCREEN_HEIGHT = 1080
 PUPIL_MIN_MM = 2.0
 PUPIL_MAX_MM = 8.0
 
-# Blink detection parameters
-BLINK_MIN_DURATION_MS = 50
-BLINK_MAX_DURATION_MS = 500
-BLINK_PUPIL_CHANGE_THRESHOLD = 0.5  # mm change threshold
-
 # Sampling rate
 SAMPLING_RATE_HZ = 100
 SAMPLE_INTERVAL_MS = 10  # 1000 / 100 Hz
-
-# Velocity thresholds (degrees/second)
-MAX_SACCADE_VELOCITY = 1000
 
 # Gap detection
 GAP_THRESHOLD_MS = 100
@@ -39,18 +46,7 @@ GAP_THRESHOLD_MS = 100
 # Type aliases
 InterpolationMethod = Literal["linear", "ffill", "bfill", "nearest", "mean", "median", "drop"]
 OutlierHandling = Literal["remove", "nan", "interpolate"]
-BlinkHandling = Literal["mark", "nan", "remove", "interpolate"]
-
-
-@dataclass
-class BlinkEvent:
-    """Represents a detected blink event."""
-
-    start_index: int
-    end_index: int
-    start_timestamp: float
-    end_timestamp: float
-    duration_ms: float
+EventDetectionMethod = Literal["ivt", "idt"]
 
 
 @dataclass
@@ -277,63 +273,6 @@ def detect_gaze_outliers(
     return outliers
 
 
-def compute_gaze_velocity(
-    df: pd.DataFrame,
-    timestamp_col: str = "Recording timestamp",
-) -> pd.Series:
-    """Compute point-to-point gaze velocity.
-
-    Args:
-        df: Input DataFrame with gaze and timestamp columns
-        timestamp_col: Name of timestamp column (in microseconds)
-
-    Returns:
-        Series with velocity values (pixels/second)
-    """
-    if "Gaze point X" not in df.columns or "Gaze point Y" not in df.columns:
-        return pd.Series(np.nan, index=df.index)
-
-    if timestamp_col not in df.columns:
-        return pd.Series(np.nan, index=df.index)
-
-    # Calculate displacement
-    dx = df["Gaze point X"].diff()
-    dy = df["Gaze point Y"].diff()
-    distance = np.sqrt(dx**2 + dy**2)
-
-    # Calculate time difference (convert from microseconds to seconds)
-    dt = df[timestamp_col].diff() / 1_000_000
-
-    # Velocity in pixels/second
-    velocity = distance / dt
-    velocity = velocity.replace([np.inf, -np.inf], np.nan)
-
-    return velocity
-
-
-def detect_velocity_outliers(
-    df: pd.DataFrame,
-    max_velocity: float = MAX_SACCADE_VELOCITY,
-    timestamp_col: str = "Recording timestamp",
-) -> pd.Series:
-    """Detect implausible eye movement velocities.
-
-    Calculates point-to-point velocity and flags samples exceeding
-    physiological limits for saccades.
-
-    Args:
-        df: Input DataFrame with gaze and timestamp columns
-        max_velocity: Maximum allowed velocity in pixels/second
-        timestamp_col: Name of timestamp column (in microseconds)
-
-    Returns:
-        Boolean Series where True indicates velocity outlier
-    """
-    velocity = compute_gaze_velocity(df, timestamp_col)
-    outliers = velocity > max_velocity
-    return outliers.fillna(False)
-
-
 def remove_outliers(
     df: pd.DataFrame,
     outlier_mask: pd.Series,
@@ -377,7 +316,6 @@ def filter_physiological_range(
     df: pd.DataFrame,
     remove_pupil_outliers: bool = True,
     remove_gaze_outliers: bool = True,
-    remove_velocity_outliers: bool = False,
     method: OutlierHandling = "nan",
 ) -> pd.DataFrame:
     """Apply all physiological range filters.
@@ -388,7 +326,6 @@ def filter_physiological_range(
         df: Input DataFrame
         remove_pupil_outliers: Filter pupil diameter outliers
         remove_gaze_outliers: Filter off-screen gaze
-        remove_velocity_outliers: Filter velocity spikes
         method: How to handle outliers ("remove", "nan", "interpolate")
 
     Returns:
@@ -403,222 +340,7 @@ def filter_physiological_range(
     if remove_gaze_outliers:
         combined_outliers = combined_outliers | detect_gaze_outliers(df)
 
-    if remove_velocity_outliers:
-        combined_outliers = combined_outliers | detect_velocity_outliers(df)
-
     return remove_outliers(df, combined_outliers, method=method)
-
-
-# =============================================================================
-# Blink Detection Functions
-# =============================================================================
-
-
-def detect_blinks(
-    df: pd.DataFrame,
-    min_duration_ms: float = BLINK_MIN_DURATION_MS,
-    max_duration_ms: float = BLINK_MAX_DURATION_MS,
-    timestamp_col: str = "Recording timestamp",
-) -> list[BlinkEvent]:
-    """Detect blink events from pupil and validity data.
-
-    Blinks are identified by consecutive samples where both eyes are invalid.
-    Duration must fall within typical blink range.
-
-    Args:
-        df: Input DataFrame (eye tracker data)
-        min_duration_ms: Minimum blink duration in milliseconds
-        max_duration_ms: Maximum blink duration in milliseconds
-        timestamp_col: Name of timestamp column (in microseconds)
-
-    Returns:
-        List of BlinkEvent objects
-    """
-    if "Validity left" not in df.columns or "Validity right" not in df.columns:
-        return []
-
-    if timestamp_col not in df.columns:
-        return []
-
-    # Find samples where both eyes are invalid (typical of blinks)
-    invalid_mask = (df["Validity left"] != "Valid") & (df["Validity right"] != "Valid")
-
-    blinks = []
-    in_blink = False
-    blink_start_idx = 0
-    blink_start_ts = 0.0
-
-    for i, (idx, row) in enumerate(df.iterrows()):
-        is_invalid = invalid_mask.iloc[i]
-
-        if is_invalid and not in_blink:
-            # Start of potential blink
-            in_blink = True
-            blink_start_idx = idx
-            blink_start_ts = row[timestamp_col]
-
-        elif not is_invalid and in_blink:
-            # End of potential blink
-            in_blink = False
-            blink_end_idx = df.index[i - 1] if i > 0 else idx
-            blink_end_ts = df.loc[blink_end_idx, timestamp_col]
-
-            # Calculate duration in ms (timestamp is in microseconds)
-            duration_ms = (blink_end_ts - blink_start_ts) / 1000
-
-            # Check if duration is within blink range
-            if min_duration_ms <= duration_ms <= max_duration_ms:
-                blinks.append(
-                    BlinkEvent(
-                        start_index=blink_start_idx,
-                        end_index=blink_end_idx,
-                        start_timestamp=blink_start_ts,
-                        end_timestamp=blink_end_ts,
-                        duration_ms=duration_ms,
-                    )
-                )
-
-    # Handle case where recording ends during a blink
-    if in_blink:
-        blink_end_idx = df.index[-1]
-        blink_end_ts = df.loc[blink_end_idx, timestamp_col]
-        duration_ms = (blink_end_ts - blink_start_ts) / 1000
-
-        if min_duration_ms <= duration_ms <= max_duration_ms:
-            blinks.append(
-                BlinkEvent(
-                    start_index=blink_start_idx,
-                    end_index=blink_end_idx,
-                    start_timestamp=blink_start_ts,
-                    end_timestamp=blink_end_ts,
-                    duration_ms=duration_ms,
-                )
-            )
-
-    return blinks
-
-
-def mark_blinks(
-    df: pd.DataFrame,
-    blinks: list[BlinkEvent] | None = None,
-    column_name: str = "is_blink",
-) -> pd.DataFrame:
-    """Add column marking blink periods.
-
-    Args:
-        df: Input DataFrame
-        blinks: List of blink events. If None, detects blinks first.
-        column_name: Name for the blink marker column
-
-    Returns:
-        DataFrame with blink marker column added
-    """
-    df = df.copy()
-
-    if blinks is None:
-        blinks = detect_blinks(df)
-
-    df[column_name] = False
-
-    for blink in blinks:
-        mask = (df.index >= blink.start_index) & (df.index <= blink.end_index)
-        df.loc[mask, column_name] = True
-
-    return df
-
-
-def remove_blinks(
-    df: pd.DataFrame,
-    blinks: list[BlinkEvent] | None = None,
-    method: Literal["remove", "nan", "interpolate"] = "nan",
-    padding_ms: float = 50.0,
-    timestamp_col: str = "Recording timestamp",
-) -> pd.DataFrame:
-    """Remove or replace blink periods.
-
-    Args:
-        df: Input DataFrame
-        blinks: List of blink events. If None, detects blinks first.
-        method: How to handle blink periods:
-            - "remove": Delete blink rows
-            - "nan": Replace with NaN
-            - "interpolate": Replace and interpolate across blink
-        padding_ms: Extra time to remove before/after blink (in ms)
-        timestamp_col: Name of timestamp column
-
-    Returns:
-        DataFrame with blink periods handled
-    """
-    df = df.copy()
-
-    if blinks is None:
-        blinks = detect_blinks(df)
-
-    if not blinks:
-        return df
-
-    # Convert padding from ms to microseconds
-    padding_us = padding_ms * 1000
-
-    # Create mask for all blink periods (with padding)
-    blink_mask = pd.Series(False, index=df.index)
-
-    for blink in blinks:
-        start_ts = blink.start_timestamp - padding_us
-        end_ts = blink.end_timestamp + padding_us
-        mask = (df[timestamp_col] >= start_ts) & (df[timestamp_col] <= end_ts)
-        blink_mask = blink_mask | mask
-
-    if method == "remove":
-        return df[~blink_mask].copy()
-
-    # Set values to NaN for blink periods
-    columns = [c for c in get_interpolatable_columns() if c in df.columns]
-    for col in columns:
-        df.loc[blink_mask, col] = np.nan
-
-    if method == "interpolate":
-        df = interpolate_missing(df, columns=columns, method="linear")
-
-    return df
-
-
-def get_blink_statistics(blinks: list[BlinkEvent], total_duration_ms: float | None = None) -> dict:
-    """Compute statistics for detected blinks.
-
-    Args:
-        blinks: List of BlinkEvent objects
-        total_duration_ms: Total recording duration in ms (for rate calculation)
-
-    Returns:
-        Dict with blink statistics
-    """
-    if not blinks:
-        return {
-            "count": 0,
-            "mean_duration_ms": 0.0,
-            "std_duration_ms": 0.0,
-            "min_duration_ms": 0.0,
-            "max_duration_ms": 0.0,
-            "blink_rate_per_min": 0.0,
-        }
-
-    durations = [b.duration_ms for b in blinks]
-
-    stats = {
-        "count": len(blinks),
-        "mean_duration_ms": np.mean(durations),
-        "std_duration_ms": np.std(durations),
-        "min_duration_ms": np.min(durations),
-        "max_duration_ms": np.max(durations),
-    }
-
-    if total_duration_ms and total_duration_ms > 0:
-        stats["blink_rate_per_min"] = len(blinks) / (total_duration_ms / 60000)
-    else:
-        stats["blink_rate_per_min"] = 0.0
-
-    return stats
 
 
 # =============================================================================
@@ -780,6 +502,81 @@ def split_at_gaps(
 
 
 # =============================================================================
+# Event Detection (via pymovements)
+# =============================================================================
+
+
+def detect_events(
+    df: pd.DataFrame,
+    method: EventDetectionMethod = "ivt",
+    velocity_threshold: float = 30.0,
+    dispersion_threshold: float = 1.0,
+    minimum_duration: int = 100,
+    screen_width_px: int = SCREEN_WIDTH,
+    screen_height_px: int = SCREEN_HEIGHT,
+) -> tuple[pd.DataFrame, dict]:
+    """Detect fixations and saccades using pymovements algorithms.
+
+    Args:
+        df: Cleaned Tobii DataFrame with gaze data.
+        method: Detection algorithm:
+            - "ivt": Velocity-threshold (faster, recommended)
+            - "idt": Dispersion-threshold (more accurate for noisy data)
+        velocity_threshold: For I-VT, velocity threshold in deg/s.
+        dispersion_threshold: For I-DT, max dispersion in degrees.
+        minimum_duration: Minimum event duration in ms.
+        screen_width_px: Screen width in pixels.
+        screen_height_px: Screen height in pixels.
+
+    Returns:
+        Tuple of (events DataFrame, statistics dict)
+    """
+    # Convert to pymovements format
+    gaze = df_to_gaze_dataframe(
+        df,
+        screen_width_px=screen_width_px,
+        screen_height_px=screen_height_px,
+    )
+
+    # Apply transformations
+    gaze = apply_pix2deg(gaze)
+    gaze = apply_pos2vel(gaze)
+
+    # Detect events
+    if method == "ivt":
+        gaze = detect_events_ivt(
+            gaze,
+            velocity_threshold=velocity_threshold,
+            minimum_duration=minimum_duration,
+        )
+    else:  # idt
+        gaze = detect_events_idt(
+            gaze,
+            dispersion_threshold=dispersion_threshold,
+            minimum_duration=minimum_duration,
+        )
+
+    # Compute event properties
+    gaze = compute_event_properties(gaze)
+
+    # Extract events
+    events_df = events_to_df(gaze)
+
+    # Compute statistics
+    from tobii_pipeline.adapters.pymovements_adapter import (
+        get_fixation_stats,
+        get_saccade_stats,
+    )
+
+    stats = {
+        "fixations": get_fixation_stats(events_df),
+        "saccades": get_saccade_stats(events_df),
+    }
+
+    return events_df, stats
+
+
+# =============================================================================
 # Pipeline Integration Function
 # =============================================================================
 
@@ -790,19 +587,23 @@ def postprocess_recording(
     interpolate_method: InterpolationMethod = "linear",
     interpolate_max_gap: int | None = 5,
     remove_physiological_outliers: bool = True,
-    detect_and_handle_blinks: bool = True,
-    blink_handling: BlinkHandling = "mark",
+    interpolate_blinks: bool = True,
+    blink_buffer_before: float = 0.05,
+    blink_buffer_after: float = 0.2,
+    detect_eye_events: bool = True,
+    event_detection_method: EventDetectionMethod = "ivt",
     report_gaps: bool = True,
     gap_threshold_ms: float = 100.0,
     timestamp_col: str = "Recording timestamp",
 ) -> tuple[pd.DataFrame, dict]:
     """Full post-processing pipeline for a recording.
 
-    Convenience function that applies all post-processing steps in order:
+    Applies all post-processing steps using library implementations:
     1. Detect and report gaps
     2. Remove physiological outliers
-    3. Detect and handle blinks
-    4. Interpolate missing values
+    3. Interpolate blinks (via MNE)
+    4. Interpolate remaining missing values
+    5. Detect eye events (via pymovements)
 
     Args:
         df: Cleaned DataFrame from clean_recording()
@@ -810,8 +611,11 @@ def postprocess_recording(
         interpolate_method: Interpolation strategy
         interpolate_max_gap: Maximum consecutive NaNs to interpolate
         remove_physiological_outliers: Filter values outside ranges
-        detect_and_handle_blinks: Process blinks
-        blink_handling: How to handle blinks ("mark", "nan", "remove", "interpolate")
+        interpolate_blinks: Use MNE to interpolate blink periods
+        blink_buffer_before: Time before blink to include (seconds)
+        blink_buffer_after: Time after blink to include (seconds)
+        detect_eye_events: Detect fixations/saccades via pymovements
+        event_detection_method: Algorithm for event detection ("ivt" or "idt")
         report_gaps: Whether to detect and report gaps
         gap_threshold_ms: Gap detection threshold
         timestamp_col: Name of timestamp column
@@ -843,27 +647,36 @@ def postprocess_recording(
         pupil_outliers = detect_pupil_outliers(df)
         gaze_outliers = detect_gaze_outliers(df)
         report["outliers"] = {
-            "pupil_outlier_count": pupil_outliers.sum(),
-            "gaze_outlier_count": gaze_outliers.sum(),
+            "pupil_outlier_count": int(pupil_outliers.sum()),
+            "gaze_outlier_count": int(gaze_outliers.sum()),
         }
         df = filter_physiological_range(df, method="nan")
 
-    # Step 4: Detect and handle blinks
-    if detect_and_handle_blinks:
-        blinks = detect_blinks(df, timestamp_col=timestamp_col)
-        report["blinks"] = get_blink_statistics(blinks, total_duration_ms)
+    # Step 4: Interpolate blinks using MNE
+    if interpolate_blinks:
+        report["blinks"] = get_blink_statistics_mne(df, sfreq=SAMPLING_RATE_HZ)
+        df = interpolate_blinks_mne(
+            df,
+            buffer_before=blink_buffer_before,
+            buffer_after=blink_buffer_after,
+            sfreq=SAMPLING_RATE_HZ,
+        )
 
-        if blink_handling == "mark":
-            df = mark_blinks(df, blinks)
-        elif blink_handling in ("nan", "remove", "interpolate"):
-            df = remove_blinks(df, blinks, method=blink_handling, timestamp_col=timestamp_col)
-
-    # Step 5: Interpolate missing values
+    # Step 5: Interpolate remaining missing values
     if interpolate:
         df = interpolate_missing(df, method=interpolate_method, max_gap=interpolate_max_gap)
 
     # Step 6: Compute final missing rate
     report["missing_after"] = compute_missing_rate(df)
+
+    # Step 7: Detect eye events using pymovements
+    if detect_eye_events:
+        try:
+            events_df, event_stats = detect_events(df, method=event_detection_method)
+            report["events"] = events_df
+            report["event_stats"] = event_stats
+        except Exception as e:
+            report["event_detection_error"] = str(e)
 
     # Summary statistics
     report["summary"] = {

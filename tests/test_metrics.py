@@ -5,9 +5,6 @@ import pandas as pd
 import pytest
 
 from tobii_pipeline.analysis.metrics import (
-    compute_fixation_count,
-    compute_fixation_durations,
-    compute_fixation_stats,
     compute_gaze_center,
     compute_gaze_dispersion,
     compute_gaze_quadrant_distribution,
@@ -15,8 +12,6 @@ from tobii_pipeline.analysis.metrics import (
     compute_pupil_stats,
     compute_pupil_variability,
     compute_recording_summary,
-    compute_saccade_count,
-    compute_saccade_stats,
     compute_tracking_ratio,
     compute_validity_rate,
 )
@@ -215,103 +210,6 @@ class TestPupilOverTime:
         assert "mean_pupil" in result.columns
 
 
-class TestFixationCount:
-    """Tests for compute_fixation_count."""
-
-    def test_counts_unique_fixations(self):
-        """Counts each fixation once regardless of samples."""
-        df = pd.DataFrame(
-            {
-                "Eye movement type": ["Fixation", "Fixation", "Saccade", "Fixation", "Fixation"],
-                "Eye movement type index": [1, 1, 2, 3, 3],
-            }
-        )
-        count = compute_fixation_count(df)
-        assert count == 2  # Indices 1 and 3
-
-    def test_no_fixations(self):
-        """Returns 0 when no fixations."""
-        df = pd.DataFrame(
-            {
-                "Eye movement type": ["Saccade", "Saccade"],
-                "Eye movement type index": [1, 2],
-            }
-        )
-        count = compute_fixation_count(df)
-        assert count == 0
-
-
-class TestFixationDurations:
-    """Tests for compute_fixation_durations."""
-
-    def test_returns_durations(self):
-        """Returns duration for each fixation."""
-        df = pd.DataFrame(
-            {
-                "Eye movement type": ["Fixation", "Fixation", "Fixation"],
-                "Eye movement type index": [1, 1, 2],
-                "Gaze event duration": [200, 200, 300],
-            }
-        )
-        durations = compute_fixation_durations(df)
-        assert len(durations) == 2
-        assert 200 in durations.values
-        assert 300 in durations.values
-
-
-class TestFixationStats:
-    """Tests for compute_fixation_stats."""
-
-    def test_computes_stats(self):
-        """Computes comprehensive statistics."""
-        df = pd.DataFrame(
-            {
-                "Eye movement type": ["Fixation", "Fixation", "Fixation"],
-                "Eye movement type index": [1, 2, 3],
-                "Gaze event duration": [100, 200, 300],
-                "Recording timestamp": [0, 100000, 200000],
-            }
-        )
-        stats = compute_fixation_stats(df)
-        assert stats["count"] == 3
-        assert stats["mean_duration"] == 200.0
-        assert stats["min_duration"] == 100.0
-        assert stats["max_duration"] == 300.0
-
-
-class TestSaccadeCount:
-    """Tests for compute_saccade_count."""
-
-    def test_counts_unique_saccades(self):
-        """Counts each saccade once."""
-        df = pd.DataFrame(
-            {
-                "Eye movement type": ["Saccade", "Saccade", "Fixation", "Saccade"],
-                "Eye movement type index": [1, 1, 2, 3],
-            }
-        )
-        count = compute_saccade_count(df)
-        assert count == 2  # Indices 1 and 3
-
-
-class TestSaccadeStats:
-    """Tests for compute_saccade_stats."""
-
-    def test_computes_stats(self):
-        """Computes comprehensive statistics."""
-        df = pd.DataFrame(
-            {
-                "Eye movement type": ["Saccade", "Saccade", "Saccade"],
-                "Eye movement type index": [1, 2, 3],
-                "Gaze event duration": [30, 40, 50],
-                "Recording timestamp": [0, 100000, 200000],
-            }
-        )
-        stats = compute_saccade_stats(df)
-        assert stats["count"] == 3
-        assert stats["mean_duration"] == 40.0
-
-
 class TestRecordingSummary:
     """Tests for compute_recording_summary."""
 
@@ -326,13 +224,11 @@ class TestRecordingSummary:
                 "Gaze point Y": [100.0, 200.0],
                 "Pupil diameter left": [3.0, 4.0],
                 "Pupil diameter right": [3.0, 4.0],
-                "Eye movement type": ["Fixation", "Fixation"],
-                "Eye movement type index": [1, 1],
-                "Gaze event duration": [200, 200],
                 "Recording timestamp": [0, 10000],
             }
         )
-        summary = compute_recording_summary(df)
+        # Disable event detection for basic test (needs more data points)
+        summary = compute_recording_summary(df, detect_events=False)
         assert "quality" in summary
         assert "gaze" in summary
         assert "pupil" in summary

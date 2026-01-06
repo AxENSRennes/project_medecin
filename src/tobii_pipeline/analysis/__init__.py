@@ -3,6 +3,9 @@
 Provides metrics calculation, visualization, statistical analysis,
 and group comparisons for eye-tracking data.
 
+Event detection (fixations, saccades) uses pymovements library.
+Heatmap visualizations use MNE-Python for smoother plots.
+
 Example:
     from tobii_pipeline.analysis import (
         compute_recording_summary,
@@ -32,8 +35,7 @@ from .compare import (
     test_group_difference,
 )
 from .metrics import (
-    compute_fixation_count,
-    compute_fixation_durations,
+    compute_events,
     compute_fixation_stats,
     compute_gaze_center,
     compute_gaze_dispersion,
@@ -42,8 +44,6 @@ from .metrics import (
     compute_pupil_stats,
     compute_pupil_variability,
     compute_recording_summary,
-    compute_saccade_count,
-    compute_saccade_durations,
     compute_saccade_stats,
     compute_tracking_ratio,
     compute_validity_rate,
@@ -51,8 +51,8 @@ from .metrics import (
 from .plots import (
     plot_eye_movement_timeline,
     plot_fixation_durations,
-    plot_fixation_heatmap,
     plot_gaze_heatmap,
+    plot_gaze_on_image,
     plot_gaze_scatter,
     plot_gaze_trajectory,
     plot_pupil_comparison,
@@ -85,23 +85,20 @@ __all__ = [
     "compute_pupil_stats",
     "compute_pupil_variability",
     "compute_pupil_over_time",
-    "compute_fixation_count",
-    "compute_fixation_durations",
+    "compute_events",
     "compute_fixation_stats",
-    "compute_saccade_count",
-    "compute_saccade_durations",
     "compute_saccade_stats",
     "compute_recording_summary",
     # plots
     "plot_gaze_scatter",
     "plot_gaze_heatmap",
+    "plot_gaze_on_image",
     "plot_gaze_trajectory",
     "plot_scanpath",
     "plot_pupil_timeseries",
     "plot_pupil_distribution",
     "plot_pupil_comparison",
     "plot_fixation_durations",
-    "plot_fixation_heatmap",
     "plot_eye_movement_timeline",
     "plot_recording_summary",
     # stats
