@@ -354,6 +354,7 @@ def plot_pupil_timeseries(
     eye: str = "both",
     ax: Axes | None = None,
     timestamp_col: str = "Recording timestamp",
+    smooth_window: int | None = 50,
 ) -> Axes:
     """Plot pupil diameter over recording time.
 
@@ -362,6 +363,8 @@ def plot_pupil_timeseries(
         eye: "left", "right", or "both"
         ax: Matplotlib axes
         timestamp_col: Timestamp column name
+        smooth_window: Rolling average window size (samples).
+            Set to None for raw data. Default 50 (~0.5s at 100Hz).
 
     Returns:
         Matplotlib Axes object
@@ -375,15 +378,26 @@ def plot_pupil_timeseries(
     # Convert timestamp to seconds
     time_s = (df[timestamp_col] - df[timestamp_col].iloc[0]) / 1_000_000
 
+    def _smooth(series, window):
+        """Apply rolling mean smoothing."""
+        if window is None or window <= 1:
+            return series
+        return series.rolling(window=window, center=True, min_periods=1).mean()
+
     if eye in ("left", "both") and "Pupil diameter left" in df.columns:
-        ax.plot(time_s, df["Pupil diameter left"], label="Left", alpha=0.7, linewidth=0.5)
+        pupil_left = _smooth(df["Pupil diameter left"], smooth_window)
+        ax.plot(time_s, pupil_left, label="Left", alpha=0.7, linewidth=0.8)
 
     if eye in ("right", "both") and "Pupil diameter right" in df.columns:
-        ax.plot(time_s, df["Pupil diameter right"], label="Right", alpha=0.7, linewidth=0.5)
+        pupil_right = _smooth(df["Pupil diameter right"], smooth_window)
+        ax.plot(time_s, pupil_right, label="Right", alpha=0.7, linewidth=0.8)
 
     ax.set_xlabel("Time (seconds)")
     ax.set_ylabel("Pupil Diameter (mm)")
-    ax.set_title("Pupil Diameter Over Time")
+    title = "Pupil Diameter Over Time"
+    if smooth_window:
+        title += " (smoothed)"
+    ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -591,7 +605,7 @@ def plot_eye_movement_timeline(
 
 def plot_recording_summary(
     df: pd.DataFrame,
-    figsize: tuple[float, float] = (14, 10),
+    figsize: tuple[float, float] = (16, 12),
 ) -> Figure:
     """Create multi-panel summary figure for a recording.
 
@@ -612,8 +626,8 @@ def plot_recording_summary(
     """
     fig = plt.figure(figsize=figsize)
 
-    # Create grid layout
-    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+    # Create grid layout with increased spacing
+    gs = fig.add_gridspec(3, 3, hspace=0.4, wspace=0.35)
 
     # Pre-compute events once for reuse
     try:

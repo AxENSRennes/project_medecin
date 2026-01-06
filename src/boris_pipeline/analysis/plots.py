@@ -65,6 +65,49 @@ def _get_color_map(
     return result
 
 
+def abbreviate_behavior_label(label: str) -> str:
+    """Abbreviate common behavior prefixes for readability.
+
+    Replaces verbose prefixes with short codes:
+    - "E.D. - " -> "ED:"
+    - "E.N. - " -> "EN:"
+    - "T. - " -> "T:"
+    - "O. - " -> "O:"
+
+    Args:
+        label: Full behavior label string.
+
+    Returns:
+        Abbreviated label.
+    """
+    abbreviations = {
+        "E.D. - ": "ED:",
+        "E.D. -": "ED:",
+        "E.N. - ": "EN:",
+        "E.N. -": "EN:",
+        "T. - ": "T:",
+        "T. -": "T:",
+        "O. - ": "O:",
+        "O. -": "O:",
+    }
+    for prefix, abbrev in abbreviations.items():
+        if label.startswith(prefix):
+            return abbrev + label[len(prefix) :]
+    return label
+
+
+def abbreviate_labels(labels: list[str]) -> list[str]:
+    """Apply abbreviation to a list of labels.
+
+    Args:
+        labels: List of behavior label strings.
+
+    Returns:
+        List of abbreviated labels.
+    """
+    return [abbreviate_behavior_label(label) for label in labels]
+
+
 # =============================================================================
 # Timeline Visualizations
 # =============================================================================
@@ -136,7 +179,9 @@ def plot_behavior_timeline(
     # Configure axes
     ax.set_yticks(range(len(behaviors)))
     if show_labels:
-        ax.set_yticklabels(behaviors)
+        abbreviated = abbreviate_labels(behaviors)
+        fontsize = 8 if len(behaviors) > 10 else 10
+        ax.set_yticklabels(abbreviated, fontsize=fontsize)
     else:
         ax.set_yticklabels([])
 
@@ -327,7 +372,8 @@ def plot_duration_boxplot(
         ax.set_title("Duration Boxplot (no data)")
         return ax
 
-    ax.boxplot(data, labels=labels)
+    abbreviated = abbreviate_labels(labels)
+    ax.boxplot(data, labels=abbreviated)
     ax.set_xlabel("Behavior")
     ax.set_ylabel("Duration (seconds)")
     ax.set_title("Duration by Behavior")
@@ -335,7 +381,8 @@ def plot_duration_boxplot(
 
     # Rotate labels if many behaviors
     if len(labels) > 5:
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
+        plt.gcf().subplots_adjust(bottom=0.25)
 
     return ax
 
@@ -390,17 +437,21 @@ def plot_frequency_bars(
     counts = [item[1] for item in sorted_items]
     colors = _get_color_map(behaviors)
     bar_colors = [colors[b] for b in behaviors]
+    abbreviated = abbreviate_labels(behaviors)
 
     if horizontal:
-        ax.barh(behaviors, counts, color=bar_colors)
+        ax.barh(abbreviated, counts, color=bar_colors)
         ax.set_xlabel("Count")
         ax.set_ylabel("Behavior")
+        if len(behaviors) > 10:
+            plt.setp(ax.get_yticklabels(), fontsize=8)
     else:
-        ax.bar(behaviors, counts, color=bar_colors)
+        ax.bar(abbreviated, counts, color=bar_colors)
         ax.set_xlabel("Behavior")
         ax.set_ylabel("Count")
         if len(behaviors) > 5:
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
+            plt.gcf().subplots_adjust(bottom=0.25)
 
     ax.set_title("Behavior Frequencies")
     ax.grid(True, alpha=0.3, axis="y" if not horizontal else "x")
@@ -452,14 +503,19 @@ def plot_time_budget_pie(
     sizes = list(main_items.values())
     colors = _get_color_map(labels)
     pie_colors = [colors[label] for label in labels]
+    abbreviated = abbreviate_labels(labels)
+
+    # Dynamic label fontsize based on number of slices
+    label_fontsize = 8 if len(labels) > 8 else 10
 
     ax.pie(
         sizes,
-        labels=labels,
+        labels=abbreviated,
         colors=pie_colors,
         autopct="%1.1f%%",
         startangle=90,
         pctdistance=0.75,
+        textprops={"fontsize": label_fontsize},
     )
     ax.set_title("Time Budget")
 
@@ -506,20 +562,35 @@ def plot_transition_matrix(
     # Add colorbar
     plt.colorbar(im, ax=ax, label="Probability")
 
-    # Add annotations
-    if annotate:
+    n_behaviors = len(matrix)
+
+    # Add annotations (only if matrix is small enough to be readable)
+    if annotate and n_behaviors <= 10:
+        annotation_fontsize = max(6, 12 - n_behaviors // 2)
         for i in range(len(matrix)):
             for j in range(len(matrix.columns)):
                 value = matrix.iloc[i, j]
                 if value > 0:
                     text_color = "white" if value > 0.5 else "black"
-                    ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=text_color)
+                    ax.text(
+                        j,
+                        i,
+                        f"{value:.2f}",
+                        ha="center",
+                        va="center",
+                        color=text_color,
+                        fontsize=annotation_fontsize,
+                    )
 
-    # Configure axes
+    # Configure axes with abbreviated labels
+    x_labels = abbreviate_labels(list(matrix.columns))
+    y_labels = abbreviate_labels(list(matrix.index))
+    label_fontsize = max(6, 10 - n_behaviors // 3)
+
     ax.set_xticks(range(len(matrix.columns)))
     ax.set_yticks(range(len(matrix)))
-    ax.set_xticklabels(matrix.columns, rotation=45, ha="right")
-    ax.set_yticklabels(matrix.index)
+    ax.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=label_fontsize)
+    ax.set_yticklabels(y_labels, fontsize=label_fontsize)
     ax.set_xlabel("To Behavior")
     ax.set_ylabel("From Behavior")
     ax.set_title("Behavior Transition Probabilities")
@@ -813,7 +884,7 @@ def plot_behavior_rate_over_time(
 def plot_recording_summary(
     df: pd.DataFrame,
     behavior_col: str = "Behavior",
-    figsize: tuple[float, float] = (14, 10),
+    figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Multi-panel summary figure for a recording.
 
@@ -823,15 +894,21 @@ def plot_recording_summary(
     Args:
         df: Aggregated events DataFrame.
         behavior_col: Column name for behavior labels.
-        figsize: Figure size.
+        figsize: Figure size. If None, adapts to number of behaviors.
 
     Returns:
         Matplotlib Figure object.
     """
+    # Adaptive figure sizing based on number of behaviors
+    n_behaviors = len(df[behavior_col].unique()) if behavior_col in df.columns else 1
+    if figsize is None:
+        height = max(12, 10 + n_behaviors * 0.15)
+        figsize = (16, height)
+
     fig = plt.figure(figsize=figsize)
 
-    # Create grid layout
-    gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.3)
+    # Create grid layout with increased spacing
+    gs = fig.add_gridspec(3, 3, hspace=0.45, wspace=0.35)
 
     # Timeline (top row, full width)
     ax1 = fig.add_subplot(gs[0, :])

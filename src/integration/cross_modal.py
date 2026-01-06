@@ -12,6 +12,8 @@ import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from boris_pipeline.analysis.plots import abbreviate_labels
+
 from .alignment import tobii_to_seconds, validate_alignment
 from .epochs import (
     align_to_behavior_onset,
@@ -552,14 +554,16 @@ def plot_gaze_by_behavior(
     )
     behaviors = [item[0] for item in sorted_items]
     vals = [item[1] for item in sorted_items]
+    abbreviated = abbreviate_labels(behaviors)
 
-    ax.bar(behaviors, vals)
+    ax.bar(abbreviated, vals)
     ax.set_xlabel("Behavior")
     ax.set_ylabel(ylabel)
     ax.set_title(f"{ylabel} by Behavior")
 
     if len(behaviors) > 5:
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
+        plt.gcf().subplots_adjust(bottom=0.25)
 
     ax.grid(True, alpha=0.3, axis="y")
 
@@ -574,7 +578,9 @@ def plot_pupil_behavior_timeline(
     behavior_col: str = "Behavior",
     boris_start_col: str = "Start (s)",
     boris_stop_col: str = "Stop (s)",
-    figsize: tuple[float, float] = (14, 6),
+    figsize: tuple[float, float] = (16, 6),
+    smooth_window: int | None = 50,
+    max_behaviors: int | None = 10,
 ) -> Axes:
     """Combined plot: pupil timeseries with behavior annotations overlaid.
 
@@ -587,6 +593,10 @@ def plot_pupil_behavior_timeline(
         boris_start_col: Column name for Boris event start times.
         boris_stop_col: Column name for Boris event stop times.
         figsize: Figure size.
+        smooth_window: Rolling average window for pupil data (samples).
+            Set to None for raw data. Default 50.
+        max_behaviors: Maximum number of behaviors to display as overlays.
+            If None, shows all. Top behaviors by total duration are shown.
 
     Returns:
         Matplotlib Axes object.
@@ -594,35 +604,54 @@ def plot_pupil_behavior_timeline(
     if ax is None:
         _, ax = plt.subplots(figsize=figsize)
 
-    # Plot pupil timeseries
+    # Plot pupil timeseries with smoothing
     time_s = tobii_to_seconds(tobii_df, tobii_time_col)
 
+    def _smooth(series, window):
+        """Apply rolling mean smoothing."""
+        if window is None or window <= 1:
+            return series
+        return series.rolling(window=window, center=True, min_periods=1).mean()
+
     if "Pupil diameter left" in tobii_df.columns:
-        ax.plot(
-            time_s, tobii_df["Pupil diameter left"], label="Pupil (L)", alpha=0.7, linewidth=0.5
-        )
+        pupil_left = _smooth(tobii_df["Pupil diameter left"], smooth_window)
+        ax.plot(time_s, pupil_left, label="Pupil (L)", alpha=0.7, linewidth=0.8)
     if "Pupil diameter right" in tobii_df.columns:
-        ax.plot(
-            time_s, tobii_df["Pupil diameter right"], label="Pupil (R)", alpha=0.7, linewidth=0.5
+        pupil_right = _smooth(tobii_df["Pupil diameter right"], smooth_window)
+        ax.plot(time_s, pupil_right, label="Pupil (R)", alpha=0.7, linewidth=0.8)
+
+    # Filter to top N behaviors by total duration to reduce visual clutter
+    boris_filtered = boris_df.copy()
+    if max_behaviors is not None:
+        behavior_durations = (
+            boris_df.groupby(behavior_col, as_index=False)
+            .apply(lambda g: (g[boris_stop_col] - g[boris_start_col]).sum(), include_groups=False)
+            .set_index(behavior_col)
+            .squeeze()
+            .sort_values(ascending=False)
         )
+        top_behaviors = behavior_durations.head(max_behaviors).index.tolist()
+        boris_filtered = boris_df[boris_df[behavior_col].isin(top_behaviors)]
 
     # Add behavior annotations as colored spans
-    behaviors = boris_df[behavior_col].unique()
+    behaviors = boris_filtered[behavior_col].unique()
     cmap = plt.get_cmap("Set3")
     colors = [cmap(i) for i in np.linspace(0, 1, len(behaviors))]
     color_map = dict(zip(behaviors, colors, strict=False))
 
-    for _, event in boris_df.iterrows():
+    for _, event in boris_filtered.iterrows():
         behavior = event[behavior_col]
         start = event[boris_start_col]
         stop = event[boris_stop_col]
 
         ax.axvspan(start, stop, alpha=0.3, color=color_map[behavior], label=behavior)
 
-    # Remove duplicate labels
+    # Remove duplicate labels and abbreviate
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles, strict=False))
-    ax.legend(by_label.values(), by_label.keys(), loc="upper right", fontsize=8)
+    abbreviated = abbreviate_labels(list(by_label.keys()))
+    label_fontsize = 7 if len(by_label) > 10 else 8
+    ax.legend(by_label.values(), abbreviated, loc="upper right", fontsize=label_fontsize)
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Pupil Diameter (mm)")
@@ -636,7 +665,7 @@ def plot_cross_modal_summary(
     tobii_df: pd.DataFrame,
     boris_df: pd.DataFrame,
     behavior_col: str = "Behavior",
-    figsize: tuple[float, float] = (14, 10),
+    figsize: tuple[float, float] | None = None,
 ) -> Figure:
     """Multi-panel summary of cross-modal relationships.
 
@@ -647,13 +676,19 @@ def plot_cross_modal_summary(
         tobii_df: Tobii recording DataFrame.
         boris_df: Boris aggregated events DataFrame.
         behavior_col: Column name for Boris behavior labels.
-        figsize: Figure size.
+        figsize: Figure size. If None, adapts to number of behaviors.
 
     Returns:
         Matplotlib Figure object.
     """
+    # Adaptive sizing based on behaviors
+    n_behaviors = len(boris_df[behavior_col].unique()) if behavior_col in boris_df.columns else 1
+    if figsize is None:
+        height = max(12, 10 + n_behaviors * 0.12)
+        figsize = (16, height)
+
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(3, 2, hspace=0.35, wspace=0.3)
+    gs = fig.add_gridspec(3, 2, hspace=0.45, wspace=0.35)
 
     # Timeline with pupil overlay (top, full width)
     ax1 = fig.add_subplot(gs[0, :])

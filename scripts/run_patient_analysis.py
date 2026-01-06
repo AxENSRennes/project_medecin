@@ -178,6 +178,7 @@ def analyze_single_recording(
     generate_plots: bool = True,
     output_dir: Path | None = None,
     verbose: bool = False,
+    pbar: tqdm | None = None,
 ) -> RecordingResult:
     """Analyze a single matched Tobii-BORIS recording pair."""
     result = RecordingResult(
@@ -187,6 +188,8 @@ def analyze_single_recording(
     )
 
     # --- Stage 1: Load and clean Tobii data ---
+    if pbar is not None:
+        pbar.set_description("Loading Tobii")
     try:
         if verbose:
             print(f"  Loading Tobii: {match.tobii_path.name}")
@@ -195,15 +198,25 @@ def analyze_single_recording(
         tobii_df = filter_eye_tracker(tobii_df)
     except Exception as e:
         result.errors.append(AnalysisError(result.recording_id, "load_tobii", str(e)))
+        if pbar is not None:
+            pbar.update(pbar.total - pbar.n)  # Complete remaining steps
         return result
+    if pbar is not None:
+        pbar.update(1)
 
     # --- Stage 2: Compute Tobii metrics ---
+    if pbar is not None:
+        pbar.set_description("Tobii metrics")
     try:
         result.tobii_metrics = compute_tobii_summary(tobii_df)
     except Exception as e:
         result.errors.append(AnalysisError(result.recording_id, "tobii_metrics", str(e)))
+    if pbar is not None:
+        pbar.update(1)
 
     # --- Stage 3: Load BORIS data (if available) ---
+    if pbar is not None:
+        pbar.set_description("Loading BORIS")
     boris_df = None
     if match.boris_path is not None:
         try:
@@ -214,23 +227,37 @@ def analyze_single_recording(
             result.warnings.append(f"Failed to load BORIS: {e}")
     else:
         result.warnings.append("No matching BORIS file found")
+    if pbar is not None:
+        pbar.update(1)
 
     # --- Stage 4: Compute BORIS metrics ---
+    if pbar is not None:
+        pbar.set_description("BORIS metrics")
     if boris_df is not None:
         try:
             result.boris_metrics = compute_boris_summary(boris_df)
         except Exception as e:
             result.errors.append(AnalysisError(result.recording_id, "boris_metrics", str(e)))
+    if pbar is not None:
+        pbar.update(1)
 
-        # --- Stage 5: Validate alignment ---
+    # --- Stage 5: Validate alignment ---
+    if pbar is not None:
+        pbar.set_description("Alignment")
+    if boris_df is not None:
         try:
             result.alignment_info = validate_alignment(boris_df, tobii_df)
             if result.alignment_info.get("warnings"):
                 result.warnings.extend(result.alignment_info["warnings"])
         except Exception as e:
             result.warnings.append(f"Alignment validation failed: {e}")
+    if pbar is not None:
+        pbar.update(1)
 
-        # --- Stage 6: Cross-modal analysis ---
+    # --- Stage 6: Cross-modal analysis ---
+    if pbar is not None:
+        pbar.set_description("Cross-modal")
+    if boris_df is not None:
         try:
             if verbose:
                 print("  Computing cross-modal metrics...")
@@ -273,8 +300,12 @@ def analyze_single_recording(
 
         except Exception as e:
             result.errors.append(AnalysisError(result.recording_id, "cross_modal", str(e)))
+    if pbar is not None:
+        pbar.update(1)
 
     # --- Stage 7: Generate plots ---
+    if pbar is not None:
+        pbar.set_description("Plotting")
     if generate_plots and output_dir is not None:
         try:
             plot_dir = output_dir / "plots" / match.visit_key
@@ -364,6 +395,8 @@ def analyze_single_recording(
 
         except Exception as e:
             result.errors.append(AnalysisError(result.recording_id, "plots", str(e)))
+    if pbar is not None:
+        pbar.update(1)
 
     return result
 
@@ -371,6 +404,72 @@ def analyze_single_recording(
 # =============================================================================
 # Aggregation and Export
 # =============================================================================
+
+
+def _flatten_tobii_metrics(metrics: dict) -> dict:
+    """Flatten nested tobii_metrics dict for CSV export and plotting.
+
+    The tobii_metrics dict from compute_recording_summary has nested structure:
+    {
+        "quality": {"validity_rate": ..., ...},
+        "gaze": {"dispersion": ..., "center": (x, y), ...},
+        "pupil": {"variability": ..., "stats": {...}},
+        "fixation": {"count": ..., "duration_mean_ms": ...},
+        "saccade": {...},
+    }
+
+    This function flattens it to:
+    {
+        "validity_rate": ...,
+        "gaze_dispersion": ...,
+        "pupil_variability": ...,
+        "fixation_mean_duration": ...,
+        ...
+    }
+    """
+    flat = {}
+
+    # Quality metrics
+    if "quality" in metrics:
+        q = metrics["quality"]
+        flat["validity_rate"] = q.get("validity_rate")
+        flat["validity_rate_either"] = q.get("validity_rate_either")
+        flat["tracking_ratio"] = q.get("tracking_ratio")
+
+    # Gaze metrics
+    if "gaze" in metrics:
+        g = metrics["gaze"]
+        flat["gaze_dispersion"] = g.get("dispersion")
+        center = g.get("center", (None, None))
+        if isinstance(center, tuple):
+            flat["gaze_center_x"] = center[0]
+            flat["gaze_center_y"] = center[1]
+
+    # Pupil metrics
+    if "pupil" in metrics:
+        p = metrics["pupil"]
+        flat["pupil_variability"] = p.get("variability")
+        stats = p.get("stats", {})
+        if isinstance(stats, dict):
+            flat["pupil_mean"] = stats.get("mean")
+            flat["pupil_left_mean"] = stats.get("left_mean")
+            flat["pupil_right_mean"] = stats.get("right_mean")
+
+    # Fixation metrics
+    if "fixation" in metrics:
+        f = metrics["fixation"]
+        flat["fixation_count"] = f.get("count")
+        flat["fixation_mean_duration"] = f.get("duration_mean_ms")
+        flat["fixation_std_duration"] = f.get("duration_std_ms")
+
+    # Saccade metrics
+    if "saccade" in metrics:
+        s = metrics["saccade"]
+        flat["saccade_count"] = s.get("count")
+        flat["saccade_mean_duration"] = s.get("duration_mean_ms")
+        flat["saccade_mean_amplitude"] = s.get("amplitude_mean_deg")
+
+    return flat
 
 
 def aggregate_results(results: list[RecordingResult]) -> dict:
@@ -390,9 +489,10 @@ def aggregate_results(results: list[RecordingResult]) -> dict:
             "visit": result.metadata.get("visit", 0),
         }
 
-        # Tobii metrics
+        # Tobii metrics (flatten nested dict for CSV/plotting)
         if result.tobii_metrics:
-            tobii_rows.append({**base_info, **result.tobii_metrics})
+            flat_metrics = _flatten_tobii_metrics(result.tobii_metrics)
+            tobii_rows.append({**base_info, **flat_metrics})
 
         # BORIS metrics
         if result.boris_metrics:
@@ -593,24 +693,37 @@ def run_patient_analysis(
     # Analyze each recording
     print("\nAnalyzing recordings...")
     results = []
+    n_stages = 7  # Number of stages per recording
 
-    for match in tqdm(matches, desc="Processing recordings"):
-        if verbose:
-            print(f"\n{match.visit_key}: {match.metadata.get('id', 'unknown')}")
+    with tqdm(total=len(matches), desc="Recordings", position=0) as pbar_recordings:
+        for match in matches:
+            if verbose:
+                print(f"\n{match.visit_key}: {match.metadata.get('id', 'unknown')}")
 
-        result = analyze_single_recording(
-            match,
-            behaviors=behaviors,
-            nrows=nrows,
-            generate_plots=generate_plots,
-            output_dir=patient_output_dir,
-            verbose=verbose,
-        )
-        results.append(result)
+            pbar_recordings.set_postfix_str(match.visit_key)
 
-        if result.errors:
-            for error in result.errors:
-                print(f"  ERROR [{error.stage}]: {error.message}")
+            with tqdm(
+                total=n_stages,
+                desc="Starting",
+                position=1,
+                leave=False,
+                bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}",
+            ) as pbar_stages:
+                result = analyze_single_recording(
+                    match,
+                    behaviors=behaviors,
+                    nrows=nrows,
+                    generate_plots=generate_plots,
+                    output_dir=patient_output_dir,
+                    verbose=verbose,
+                    pbar=pbar_stages,
+                )
+            results.append(result)
+            pbar_recordings.update(1)
+
+            if result.errors:
+                for error in result.errors:
+                    tqdm.write(f"  ERROR [{error.stage}]: {error.message}")
 
     # Aggregate results
     print("\nAggregating results...")
