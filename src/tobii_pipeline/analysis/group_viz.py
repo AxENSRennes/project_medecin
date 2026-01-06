@@ -351,6 +351,26 @@ def plot_metric_violin(
     patient_data = summary_df[summary_df["group"] == "Patient"][metric].dropna()
     control_data = summary_df[summary_df["group"] == "Control"][metric].dropna()
 
+    # Check for empty data - can't create violin plot without data
+    if len(patient_data) == 0 or len(control_data) == 0:
+        ax.text(
+            0.5,
+            0.5,
+            "Insufficient data",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=10,
+            color="gray",
+        )
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(
+            [f"Patient\n(n={len(patient_data)})", f"Control\n(n={len(control_data)})"]
+        )
+        ax.set_ylabel(label, fontsize=11)
+        despine(ax)
+        return ax
+
     data = [patient_data.values, control_data.values]
 
     # Create violin plot
