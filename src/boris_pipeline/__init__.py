@@ -1,7 +1,7 @@
 """BORIS behavioral observation data pipeline.
 
-A toolkit for loading and processing BORIS behavioral observation data
-exported as Excel files.
+A toolkit for loading, processing, and analyzing BORIS behavioral observation
+data exported as Excel files.
 
 Example usage:
     from boris_pipeline import (
@@ -25,6 +25,13 @@ Example usage:
 
     # Save to Parquet
     save_parquet(df, "output/recording.parquet")
+
+For analysis functions, see the analysis subpackage:
+    from boris_pipeline.analysis import (
+        compute_recording_summary,
+        plot_recording_summary,
+        compare_patient_vs_control,
+    )
 """
 
 from .constants import (
