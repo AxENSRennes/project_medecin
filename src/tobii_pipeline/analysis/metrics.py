@@ -298,8 +298,9 @@ def compute_events(
     minimum_duration: int = 100,
     screen_width_px: int = 1920,
     screen_height_px: int = 1080,
+    include_blinks: bool = True,
 ) -> pd.DataFrame:
-    """Detect fixations and saccades using pymovements I-VT algorithm.
+    """Detect fixations, saccades, and blinks using pymovements I-VT algorithm.
 
     Args:
         df: Cleaned Tobii DataFrame with gaze data.
@@ -307,16 +308,17 @@ def compute_events(
         minimum_duration: Minimum event duration in ms.
         screen_width_px: Screen width in pixels.
         screen_height_px: Screen height in pixels.
+        include_blinks: Whether to include blink events from validity data.
 
     Returns:
         DataFrame with detected events including:
-        - name: Event type (fixation, saccade)
+        - name: Event type (fixation, saccade, blink)
         - onset: Start time in ms
         - offset: End time in ms
         - duration: Event duration in ms
-        - amplitude: Movement amplitude in degrees
-        - dispersion: Spatial dispersion in degrees
-        - peak_velocity: Maximum velocity in deg/s
+        - amplitude: Movement amplitude in degrees (fixations/saccades)
+        - dispersion: Spatial dispersion in degrees (fixations)
+        - peak_velocity: Maximum velocity in deg/s (saccades)
     """
     # Convert to pymovements format
     gaze = df_to_gaze_dataframe(
@@ -339,8 +341,20 @@ def compute_events(
     # Compute event properties
     gaze = compute_event_properties(gaze)
 
-    # Extract and return events
-    return events_to_df(gaze)
+    # Extract pymovements events
+    events_df = events_to_df(gaze)
+
+    # Add blink events from validity data
+    if include_blinks:
+        from tobii_pipeline.adapters.mne_adapter import get_blink_events_df
+
+        blink_events = get_blink_events_df(df)
+        if len(blink_events) > 0:
+            events_df = pd.concat([events_df, blink_events], ignore_index=True)
+            # Sort by onset time
+            events_df = events_df.sort_values("onset").reset_index(drop=True)
+
+    return events_df
 
 
 def compute_fixation_stats(

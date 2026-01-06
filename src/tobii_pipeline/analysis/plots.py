@@ -355,6 +355,8 @@ def plot_pupil_timeseries(
     ax: Axes | None = None,
     timestamp_col: str = "Recording timestamp",
     smooth_window: int | None = 50,
+    show_raw: bool = False,
+    validity_filter: bool = True,
 ) -> Axes:
     """Plot pupil diameter over recording time.
 
@@ -365,6 +367,10 @@ def plot_pupil_timeseries(
         timestamp_col: Timestamp column name
         smooth_window: Rolling average window size (samples).
             Set to None for raw data. Default 50 (~0.5s at 100Hz).
+        show_raw: If True, show only raw valid data points (no interpolation).
+            Invalid samples appear as gaps in the plot. Default False.
+        validity_filter: If True and show_raw is True, mask samples where
+            validity is not "Valid". Default True.
 
     Returns:
         Matplotlib Axes object
@@ -384,20 +390,49 @@ def plot_pupil_timeseries(
             return series
         return series.rolling(window=window, center=True, min_periods=1).mean()
 
+    def _mask_invalid(series, validity_col):
+        """Mask values where validity is not 'Valid' by setting to NaN."""
+        if validity_col not in df.columns:
+            return series
+        masked = series.copy()
+        invalid_mask = df[validity_col] != "Valid"
+        masked[invalid_mask] = np.nan
+        return masked
+
     if eye in ("left", "both") and "Pupil diameter left" in df.columns:
-        pupil_left = _smooth(df["Pupil diameter left"], smooth_window)
+        pupil_left = df["Pupil diameter left"].copy()
+
+        if show_raw and validity_filter:
+            pupil_left = _mask_invalid(pupil_left, "Validity left")
+
+        if not show_raw:
+            pupil_left = _smooth(pupil_left, smooth_window)
+
         ax.plot(time_s, pupil_left, label="Left", alpha=0.7, linewidth=0.8)
 
     if eye in ("right", "both") and "Pupil diameter right" in df.columns:
-        pupil_right = _smooth(df["Pupil diameter right"], smooth_window)
+        pupil_right = df["Pupil diameter right"].copy()
+
+        if show_raw and validity_filter:
+            pupil_right = _mask_invalid(pupil_right, "Validity right")
+
+        if not show_raw:
+            pupil_right = _smooth(pupil_right, smooth_window)
+
         ax.plot(time_s, pupil_right, label="Right", alpha=0.7, linewidth=0.8)
 
     ax.set_xlabel("Time (seconds)")
     ax.set_ylabel("Pupil Diameter (mm)")
-    title = "Pupil Diameter Over Time"
-    if smooth_window:
-        title += " (smoothed)"
+
+    # Update title based on mode
+    if show_raw:
+        title = "Pupil Diameter Over Time (raw valid data)"
+    elif smooth_window:
+        title = "Pupil Diameter Over Time (smoothed)"
+    else:
+        title = "Pupil Diameter Over Time"
     ax.set_title(title)
+
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -541,7 +576,7 @@ def plot_eye_movement_timeline(
     ax: Axes | None = None,
     timestamp_col: str = "Recording timestamp",
 ) -> Axes:
-    """Timeline showing detected fixations and saccades.
+    """Timeline showing detected fixations, saccades, and blinks.
 
     Args:
         df: Input DataFrame with timestamp column
@@ -569,10 +604,11 @@ def plot_eye_movement_timeline(
         ax.set_title("Eye Movement Timeline (no events detected)")
         return ax
 
-    # Color mapping
+    # Color mapping (including blinks)
     color_map = {
         "fixation": "blue",
         "saccade": "red",
+        "blink": "gray",
     }
 
     # Plot each event type
@@ -606,6 +642,7 @@ def plot_eye_movement_timeline(
 def plot_recording_summary(
     df: pd.DataFrame,
     figsize: tuple[float, float] = (16, 12),
+    show_raw_pupil: bool = True,
 ) -> Figure:
     """Create multi-panel summary figure for a recording.
 
@@ -620,6 +657,8 @@ def plot_recording_summary(
     Args:
         df: Input DataFrame (cleaned eye tracker data)
         figsize: Figure size in inches
+        show_raw_pupil: If True, show only raw valid pupil data (gaps visible).
+            Default True for accurate visualization of data quality.
 
     Returns:
         Matplotlib Figure object
@@ -647,9 +686,9 @@ def plot_recording_summary(
     ax3 = fig.add_subplot(gs[0, 2])
     plot_gaze_scatter(df, ax=ax3, alpha=0.1, s=0.5)
 
-    # Pupil timeseries (middle, full width)
+    # Pupil timeseries (middle, full width) - with raw data option
     ax4 = fig.add_subplot(gs[1, :2])
-    plot_pupil_timeseries(df, ax=ax4)
+    plot_pupil_timeseries(df, ax=ax4, show_raw=show_raw_pupil)
 
     # Fixation duration histogram (middle right)
     ax5 = fig.add_subplot(gs[1, 2])

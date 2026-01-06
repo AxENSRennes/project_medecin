@@ -125,6 +125,7 @@ def detect_events_ivt(
     gaze: pm.GazeDataFrame,
     velocity_threshold: float = 30.0,
     minimum_duration: int = 100,
+    saccade_minimum_duration: int = 10,
 ) -> pm.GazeDataFrame:
     """Detect fixations and saccades using I-VT (velocity-threshold) algorithm.
 
@@ -136,6 +137,8 @@ def detect_events_ivt(
         velocity_threshold: Velocity threshold in degrees/second.
             Samples below this are classified as fixations.
         minimum_duration: Minimum fixation duration in milliseconds.
+        saccade_minimum_duration: Minimum saccade duration in milliseconds.
+            Default 10ms (1 sample at 100Hz).
 
     Returns:
         GazeDataFrame with detected events.
@@ -146,14 +149,26 @@ def detect_events_ivt(
         gaze.pos2vel()
 
     # Detect fixations using I-VT
-    gaze.detect("ivt", velocity_threshold=velocity_threshold, name="fixation")
-
-    # Detect saccades as high-velocity periods
     gaze.detect(
-        "microsaccades",
-        minimum_duration=minimum_duration // 10,  # Convert to appropriate unit
-        name="saccade",
+        "ivt",
+        velocity_threshold=velocity_threshold,
+        minimum_duration=minimum_duration,
+        name="fixation",
     )
+
+    # Detect saccades using microsaccades with explicit threshold
+    # The threshold is an elliptic (x, y) velocity threshold in deg/s
+    # This detects periods where velocity exceeds the threshold
+    try:
+        gaze.detect(
+            "microsaccades",
+            threshold=(velocity_threshold, velocity_threshold),
+            minimum_duration=saccade_minimum_duration,
+            name="saccade",
+        )
+    except (ValueError, TypeError):
+        # If detection fails (e.g., not enough variance), skip saccade detection
+        pass
 
     return gaze
 

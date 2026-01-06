@@ -345,6 +345,38 @@ def plot_gaze_on_stimulus(
     return fig, ax
 
 
+def get_blink_events_df(
+    df: pd.DataFrame,
+    sfreq: float = DEFAULT_SAMPLING_RATE,
+) -> pd.DataFrame:
+    """Get blink events as a DataFrame compatible with pymovements events format.
+
+    Args:
+        df: Cleaned Tobii DataFrame with validity columns.
+        sfreq: Sampling frequency in Hz.
+
+    Returns:
+        DataFrame with columns: name, onset, offset, duration (times in ms)
+    """
+    annotations = create_blink_annotations(df, sfreq=sfreq)
+
+    if len(annotations) == 0:
+        return pd.DataFrame(columns=["name", "onset", "offset", "duration"])
+
+    # Convert to DataFrame format matching pymovements events
+    events_data = {
+        "name": ["blink"] * len(annotations),
+        "onset": [onset * 1000 for onset in annotations.onset],  # seconds to ms
+        "offset": [
+            (onset + dur) * 1000
+            for onset, dur in zip(annotations.onset, annotations.duration, strict=False)
+        ],
+        "duration": [dur * 1000 for dur in annotations.duration],  # seconds to ms
+    }
+
+    return pd.DataFrame(events_data)
+
+
 def get_blink_statistics_mne(
     df: pd.DataFrame,
     sfreq: float = DEFAULT_SAMPLING_RATE,
