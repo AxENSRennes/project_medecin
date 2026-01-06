@@ -45,9 +45,11 @@ from .compare import (
 )
 from .group_viz import (
     compute_group_heatmap,
+    compute_group_heatmap_from_cache,
     compute_group_metrics_by_behavior,
     create_behavioral_figure,
     create_group_comparison_figure,
+    create_group_comparison_figure_streaming,
     create_longitudinal_figure,
     plot_behavior_group_comparison,
     plot_group_heatmap_comparison,
@@ -175,12 +177,14 @@ __all__ = [
     "despine",
     # group_viz (group-level visualizations)
     "compute_group_heatmap",
+    "compute_group_heatmap_from_cache",
     "plot_group_heatmap_comparison",
     "plot_longitudinal_ci",
     "create_longitudinal_figure",
     "plot_metric_violin",
     "plot_multi_metric_comparison",
     "create_group_comparison_figure",
+    "create_group_comparison_figure_streaming",
     "compute_group_metrics_by_behavior",
     "plot_behavior_group_comparison",
     "create_behavioral_figure",

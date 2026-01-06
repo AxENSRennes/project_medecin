@@ -25,6 +25,70 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
+def compute_group_heatmap_from_cache(
+    gaze_data_list: list[dict],
+    group: str,
+    width: int = 1920,
+    height: int = 1080,
+    n_bins: int = 100,
+    sigma: float = 5.0,
+) -> np.ndarray:
+    """Compute aggregate gaze heatmap for a group from cached gaze data.
+
+    Memory-efficient version that uses pre-extracted gaze data instead of
+    full DataFrames.
+
+    Args:
+        gaze_data_list: List of dicts with group, participant, gaze_x, gaze_y
+        group: Group to filter ("Patient" or "Control")
+        width: Screen width in pixels
+        height: Screen height in pixels
+        n_bins: Number of bins in each dimension
+        sigma: Gaussian smoothing sigma (in bins)
+
+    Returns:
+        2D numpy array (n_bins x n_bins) with normalized density values
+    """
+    bins_x = np.linspace(0, width, n_bins + 1)
+    bins_y = np.linspace(0, height, n_bins + 1)
+
+    combined_heatmap = np.zeros((n_bins, n_bins))
+    n_participants = 0
+
+    for gaze_data in gaze_data_list:
+        if gaze_data is None:
+            continue
+        if gaze_data.get("group") != group:
+            continue
+
+        gaze_x = gaze_data.get("gaze_x")
+        gaze_y = gaze_data.get("gaze_y")
+
+        if gaze_x is None or gaze_y is None or len(gaze_x) == 0:
+            continue
+
+        # Create 2D histogram for this participant
+        hist, _, _ = np.histogram2d(gaze_x, gaze_y, bins=[bins_x, bins_y])
+
+        # Normalize participant contribution (max = 1)
+        if hist.max() > 0:
+            hist = hist / hist.max()
+
+        # Transpose to match image coordinates (y increases downward)
+        combined_heatmap += hist.T
+        n_participants += 1
+
+    # Normalize by number of participants
+    if n_participants > 0:
+        combined_heatmap /= n_participants
+
+    # Apply Gaussian smoothing
+    if sigma > 0:
+        combined_heatmap = gaussian_filter(combined_heatmap, sigma=sigma)
+
+    return combined_heatmap
+
+
 def compute_group_heatmap(
     recordings: list[tuple[pd.DataFrame, dict]],
     group: str,
@@ -498,6 +562,92 @@ def create_group_comparison_figure(
     # Compute and plot heatmaps
     patient_heatmap = compute_group_heatmap(recordings, "Patient")
     control_heatmap = compute_group_heatmap(recordings, "Control")
+    diff_heatmap = patient_heatmap - control_heatmap
+
+    extent = [0, 1920, 1080, 0]
+    vmax_groups = max(patient_heatmap.max(), control_heatmap.max())
+
+    ax_heat[0].imshow(
+        patient_heatmap, extent=extent, cmap="hot", vmin=0, vmax=vmax_groups, aspect="auto"
+    )
+    ax_heat[0].set_title("Patient", fontsize=12, fontweight="bold")
+
+    ax_heat[1].imshow(
+        control_heatmap, extent=extent, cmap="hot", vmin=0, vmax=vmax_groups, aspect="auto"
+    )
+    ax_heat[1].set_title("Control", fontsize=12, fontweight="bold")
+
+    vmax_diff = max(abs(diff_heatmap.min()), abs(diff_heatmap.max()), 0.01)
+    ax_heat[2].imshow(
+        diff_heatmap, extent=extent, cmap="RdBu_r", vmin=-vmax_diff, vmax=vmax_diff, aspect="auto"
+    )
+    ax_heat[2].set_title("Difference", fontsize=12, fontweight="bold")
+
+    for ax in ax_heat:
+        ax.set_xlabel("X (px)")
+    ax_heat[0].set_ylabel("Y (px)")
+
+    # Add panel labels to heatmaps
+    add_panel_label(ax_heat[0], "A")
+    add_panel_label(ax_heat[1], "B")
+    add_panel_label(ax_heat[2], "C")
+
+    # Rows 2-3: Violin plots
+    n_metrics = min(len(metrics), 6)  # Max 6 metrics
+    for i, (metric, label) in enumerate(metrics[:n_metrics]):
+        row = 1 + i // 3
+        col = i % 3
+        ax = fig.add_subplot(gs[row, col])
+        plot_metric_violin(summary_df, metric, label, ax=ax, show_points=True)
+        add_panel_label(ax, chr(68 + i))  # D, E, F, ...
+
+    return fig
+
+
+def create_group_comparison_figure_streaming(
+    summary_df: pd.DataFrame,
+    gaze_data_list: list[dict],
+    metrics: list[tuple[str, str]] | None = None,
+    figsize: tuple[float, float] = (12, 10),
+) -> Figure:
+    """Create comprehensive group comparison figure using cached gaze data.
+
+    Memory-efficient version that uses pre-extracted gaze data for heatmaps
+    instead of full DataFrames.
+
+    Layout:
+    - Row 1: Aggregate heatmaps (Patient | Control | Difference)
+    - Row 2-3: Key metric violin plots
+
+    Args:
+        summary_df: DataFrame with metric columns
+        gaze_data_list: List of dicts with group, participant, gaze_x, gaze_y
+        metrics: List of (metric_column, label) tuples for violin plots
+        figsize: Figure size
+
+    Returns:
+        Matplotlib Figure object
+    """
+    if metrics is None:
+        metrics = [
+            ("gaze_dispersion", "Gaze Dispersion (px)"),
+            ("pupil_variability", "Pupil Variability (CV)"),
+            ("fixation_mean_duration", "Fixation Duration (ms)"),
+            ("fixation_rate", "Fixation Rate (/s)"),
+            ("saccade_rate", "Saccade Rate (/s)"),
+            ("validity_rate", "Validity Rate"),
+        ]
+
+    # Create figure with gridspec
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(3, 3, height_ratios=[1.2, 1, 1], hspace=0.35, wspace=0.3)
+
+    # Row 1: Heatmaps (spanning all columns)
+    ax_heat = [fig.add_subplot(gs[0, i]) for i in range(3)]
+
+    # Compute heatmaps from cached gaze data
+    patient_heatmap = compute_group_heatmap_from_cache(gaze_data_list, "Patient")
+    control_heatmap = compute_group_heatmap_from_cache(gaze_data_list, "Control")
     diff_heatmap = patient_heatmap - control_heatmap
 
     extent = [0, 1920, 1080, 0]

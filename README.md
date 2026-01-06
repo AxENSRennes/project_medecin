@@ -416,4 +416,3 @@ Un effet size (d de Cohen) complete l'interpretation :
 
 - Consultez le notebook `notebooks/exemple_analyse.ipynb` pour un tutoriel interactif
 - Les docstrings dans le code source contiennent des explications detaillees
-
