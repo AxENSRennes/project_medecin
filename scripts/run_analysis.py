@@ -238,7 +238,7 @@ def create_figure1(summary_df, recordings, output_dir):
 
         fig.suptitle("Patient vs Control: Eye-Tracking Metrics", fontsize=14, y=1.01)
 
-        paths = save_figure(fig, output_dir / "figure1_group_comparison")
+        paths = save_figure(fig, output_dir / "figure1_group_comparison", formats=["png"])
         print(f"  Saved: {[p.name for p in paths]}")
 
 
@@ -258,7 +258,7 @@ def create_figure2(summary_df, output_dir):
 
         fig.suptitle("Longitudinal Trends (M0 → M36)", fontsize=14, y=1.01)
 
-        paths = save_figure(fig, output_dir / "figure2_longitudinal")
+        paths = save_figure(fig, output_dir / "figure2_longitudinal", formats=["png"])
         print(f"  Saved: {[p.name for p in paths]}")
 
 
@@ -284,7 +284,7 @@ def create_figure3(tobii_boris_pairs, output_dir):
 
         fig.suptitle("Eye-Tracking Metrics by Behavioral State", fontsize=14, y=1.01)
 
-        paths = save_figure(fig, output_dir / "figure3_behavioral")
+        paths = save_figure(fig, output_dir / "figure3_behavioral", formats=["png"])
         print(f"  Saved: {[p.name for p in paths]}")
 
 
@@ -411,10 +411,10 @@ def run_analysis(nrows=None, include_boris=True):
     print(f"All outputs saved to: {OUTPUT_DIR}/")
     print("  - summary_report.csv")
     print("  - group_statistics.csv")
-    print("  - figure1_group_comparison.{png,pdf}")
-    print("  - figure2_longitudinal.{png,pdf}")
+    print("  - figure1_group_comparison.png")
+    print("  - figure2_longitudinal.png")
     if include_boris:
-        print("  - figure3_behavioral.{png,pdf}")
+        print("  - figure3_behavioral.png")
     print("  - samples/")
 
 
