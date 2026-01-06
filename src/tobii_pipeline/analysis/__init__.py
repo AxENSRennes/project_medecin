@@ -6,6 +6,8 @@ and group comparisons for eye-tracking data.
 Event detection (fixations, saccades) uses pymovements library.
 Heatmap visualizations use MNE-Python for smoother plots.
 
+Publication-quality visualizations available via pub_plots and group_viz modules.
+
 Example:
     from tobii_pipeline.analysis import (
         compute_recording_summary,
@@ -21,6 +23,13 @@ Example:
 
     # Compare groups
     results = compare_patient_vs_control(data_dirs, compute_fixation_stats)
+
+    # Publication-quality figures
+    from tobii_pipeline.analysis import (
+        apply_publication_style,
+        create_group_comparison_figure,
+        plot_longitudinal_ci,
+    )
 """
 
 from .compare import (
@@ -33,6 +42,18 @@ from .compare import (
     plot_group_comparison,
     plot_longitudinal_trend,
     test_group_difference,
+)
+from .group_viz import (
+    compute_group_heatmap,
+    compute_group_metrics_by_behavior,
+    create_behavioral_figure,
+    create_group_comparison_figure,
+    create_longitudinal_figure,
+    plot_behavior_group_comparison,
+    plot_group_heatmap_comparison,
+    plot_longitudinal_ci,
+    plot_metric_violin,
+    plot_multi_metric_comparison,
 )
 from .metrics import (
     compute_events,
@@ -60,6 +81,22 @@ from .plots import (
     plot_pupil_timeseries,
     plot_recording_summary,
     plot_scanpath,
+)
+
+# Publication-quality visualization modules
+from .pub_plots import (
+    CATEGORY_COLORS,
+    FIGURE_SIZES,
+    GROUP_COLORS,
+    PUB_STYLE,
+    add_panel_label,
+    add_significance_bar,
+    apply_publication_style,
+    create_figure,
+    despine,
+    format_axis_labels,
+    format_p_value,
+    save_figure,
 )
 from .stats import (
     compute_cohens_d,
@@ -123,4 +160,28 @@ __all__ = [
     "compute_longitudinal_metrics",
     "plot_longitudinal_trend",
     "generate_summary_report",
+    # pub_plots (publication styling)
+    "PUB_STYLE",
+    "GROUP_COLORS",
+    "CATEGORY_COLORS",
+    "FIGURE_SIZES",
+    "apply_publication_style",
+    "create_figure",
+    "save_figure",
+    "add_significance_bar",
+    "format_p_value",
+    "format_axis_labels",
+    "add_panel_label",
+    "despine",
+    # group_viz (group-level visualizations)
+    "compute_group_heatmap",
+    "plot_group_heatmap_comparison",
+    "plot_longitudinal_ci",
+    "create_longitudinal_figure",
+    "plot_metric_violin",
+    "plot_multi_metric_comparison",
+    "create_group_comparison_figure",
+    "compute_group_metrics_by_behavior",
+    "plot_behavior_group_comparison",
+    "create_behavioral_figure",
 ]
