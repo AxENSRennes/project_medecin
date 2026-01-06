@@ -46,6 +46,7 @@ from integration.epochs import (
 
 # Tobii pipeline
 from tobii_pipeline import load_recording
+from tobii_pipeline.analysis import apply_publication_style, save_figure
 from tobii_pipeline.analysis.metrics import compute_recording_summary as compute_tobii_summary
 from tobii_pipeline.analysis.plots import plot_recording_summary as plot_tobii_summary
 from tobii_pipeline.cleaner import clean_recording, filter_eye_tracker
@@ -316,46 +317,40 @@ def analyze_single_recording(
 
             # Tobii summary plot
             try:
-                fig = plot_tobii_summary(tobii_df)
-                fig.suptitle(f"Tobii: {result.recording_id} ({match.visit_key})", y=1.02)
-                fig.savefig(plot_dir / "tobii_summary.png", dpi=150, bbox_inches="tight")
-                plt.close(fig)
+                with apply_publication_style():
+                    fig = plot_tobii_summary(tobii_df)
+                    fig.suptitle(f"Tobii: {result.recording_id} ({match.visit_key})", y=1.02)
+                    save_figure(fig, plot_dir / "tobii_summary", formats=["png"])
             except Exception as e:
                 result.warnings.append(f"Tobii plot failed: {e}")
 
             # BORIS summary plot (if data available)
             if boris_df is not None:
                 try:
-                    fig = plot_boris_summary(boris_df)
-                    fig.suptitle(f"BORIS: {result.recording_id} ({match.visit_key})", y=1.02)
-                    fig.savefig(plot_dir / "boris_summary.png", dpi=150, bbox_inches="tight")
-                    plt.close(fig)
+                    with apply_publication_style():
+                        fig = plot_boris_summary(boris_df)
+                        fig.suptitle(f"BORIS: {result.recording_id} ({match.visit_key})", y=1.02)
+                        save_figure(fig, plot_dir / "boris_summary", formats=["png"])
                 except Exception as e:
                     result.warnings.append(f"BORIS plot failed: {e}")
 
                 # Cross-modal summary
                 try:
-                    fig = plot_cross_modal_summary(tobii_df, boris_df)
-                    fig.suptitle(f"Cross-Modal: {result.recording_id} ({match.visit_key})", y=1.02)
-                    fig.savefig(
-                        plot_dir / "cross_modal_summary.png",
-                        dpi=150,
-                        bbox_inches="tight",
-                    )
-                    plt.close(fig)
+                    with apply_publication_style():
+                        fig = plot_cross_modal_summary(tobii_df, boris_df)
+                        fig.suptitle(
+                            f"Cross-Modal: {result.recording_id} ({match.visit_key})", y=1.02
+                        )
+                        save_figure(fig, plot_dir / "cross_modal_summary", formats=["png"])
                 except Exception as e:
                     result.warnings.append(f"Cross-modal plot failed: {e}")
 
                 # Pupil-behavior timeline
                 try:
-                    fig, ax = plt.subplots(figsize=(14, 6))
-                    plot_pupil_behavior_timeline(tobii_df, boris_df, ax=ax)
-                    fig.savefig(
-                        plot_dir / "pupil_behavior_timeline.png",
-                        dpi=150,
-                        bbox_inches="tight",
-                    )
-                    plt.close(fig)
+                    with apply_publication_style():
+                        fig, ax = plt.subplots(figsize=(14, 6))
+                        plot_pupil_behavior_timeline(tobii_df, boris_df, ax=ax)
+                        save_figure(fig, plot_dir / "pupil_behavior_timeline", formats=["png"])
                 except Exception as e:
                     result.warnings.append(f"Timeline plot failed: {e}")
 
@@ -375,21 +370,21 @@ def analyze_single_recording(
                             window_after_s=3.0,
                         )
                         if len(event_locked_df) > 0:
-                            fig, ax = plt.subplots(figsize=(10, 6))
-                            plot_event_locked_response(
-                                event_locked_df,
-                                "Pupil diameter left",
-                                ax=ax,
-                                show_individual=True,
-                            )
-                            ax.set_title(f"Pupil Response: {behavior}")
-                            safe_name = behavior.replace(" ", "_").replace("/", "_")
-                            fig.savefig(
-                                plot_dir / f"event_locked_{safe_name}.png",
-                                dpi=150,
-                                bbox_inches="tight",
-                            )
-                            plt.close(fig)
+                            with apply_publication_style():
+                                fig, ax = plt.subplots(figsize=(10, 6))
+                                plot_event_locked_response(
+                                    event_locked_df,
+                                    "Pupil diameter left",
+                                    ax=ax,
+                                    show_individual=True,
+                                )
+                                ax.set_title(f"Pupil Response: {behavior}")
+                                safe_name = behavior.replace(" ", "_").replace("/", "_")
+                                save_figure(
+                                    fig,
+                                    plot_dir / f"event_locked_{safe_name}",
+                                    formats=["png"],
+                                )
                     except Exception:
                         continue
 
@@ -624,30 +619,30 @@ def create_longitudinal_plots(
         ("fixation_mean_duration", "Mean Fixation Duration (ms)"),
     ]
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    axes = axes.flatten()
+    with apply_publication_style():
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        axes = axes.flatten()
 
-    for idx, (metric, label) in enumerate(metrics_to_plot):
-        ax = axes[idx]
-        if metric in tobii_df.columns:
-            months = tobii_df["month"].values
-            values = tobii_df[metric].values
+        for idx, (metric, label) in enumerate(metrics_to_plot):
+            ax = axes[idx]
+            if metric in tobii_df.columns:
+                months = tobii_df["month"].values
+                values = tobii_df[metric].values
 
-            ax.plot(months, values, "o-", markersize=10, linewidth=2)
-            ax.set_xlabel("Month")
-            ax.set_ylabel(label)
-            ax.set_title(f"{label} Over Time")
-            ax.set_xticks(months)
-            ax.set_xticklabels([f"M{m}" for m in months])
-            ax.grid(True, alpha=0.3)
-        else:
-            ax.set_title(f"{label} (not available)")
-            ax.axis("off")
+                ax.plot(months, values, "o-", markersize=10, linewidth=2)
+                ax.set_xlabel("Month")
+                ax.set_ylabel(label)
+                ax.set_title(f"{label} Over Time")
+                ax.set_xticks(months)
+                ax.set_xticklabels([f"M{m}" for m in months])
+                ax.grid(True, alpha=0.3)
+            else:
+                ax.set_title(f"{label} (not available)")
+                ax.axis("off")
 
-    fig.suptitle(f"Longitudinal Metrics: {participant_code}", fontsize=14)
-    fig.tight_layout()
-    fig.savefig(plot_dir / "metrics_over_time.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
+        fig.suptitle(f"Longitudinal Metrics: {participant_code}", fontsize=14)
+        fig.tight_layout()
+        save_figure(fig, plot_dir / "metrics_over_time", formats=["png"])
     print("  Saved: longitudinal/metrics_over_time.png")
 
 
