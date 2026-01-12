@@ -3,7 +3,7 @@
 Ce projet analyse les mouvements oculaires (eye-tracking) de participants effectuant une tache de construction LEGO a partir d'un plan. L'objectif est de comparer les patterns visuels entre patients atteints de maladies neurologiques et sujets controles sains.
 
 ## Table des matieres
-
+   
 1. [Qu'est-ce que l'eye-tracking ?](#quest-ce-que-leye-tracking-)
 2. [Contexte de l'etude](#contexte-de-letude)
 3. [Concepts cles](#concepts-cles)
@@ -416,3 +416,4 @@ Un effet size (d de Cohen) complete l'interpretation :
 
 - Consultez le notebook `notebooks/exemple_analyse.ipynb` pour un tutoriel interactif
 - Les docstrings dans le code source contiennent des explications detaillees
+
