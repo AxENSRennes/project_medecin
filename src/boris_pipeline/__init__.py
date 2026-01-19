@@ -52,6 +52,7 @@ from .loader import (
     load_time_budget,
 )
 from .parser import parse_filename, strip_aggregated_suffix
+from .postprocess import BorisPostprocessor, postprocess_boris
 from .utils import (
     batch_process,
     get_data_summary,
@@ -89,4 +90,7 @@ __all__ = [
     "list_participants",
     "get_data_summary",
     "batch_process",
+    # Postprocessing
+    "BorisPostprocessor",
+    "postprocess_boris",
 ]
