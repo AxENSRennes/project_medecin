@@ -151,14 +151,68 @@ class BorisPostprocessor:
         return df
 
     def merge_zero_duration_ta(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Si exactement deux lignes TA. ont une durée nulle, on les fusionne en une seule."""
+        """Corrige les erreurs de saisie pour TA.
+        
+        Pour aggregated: Si exactement deux lignes TA. ont une durée nulle, on les fusionne.
+        Pour time_budget: Si TA. a Total number of occurences = 2, on corrige en transférant
+        la valeur de inter-event intervals mean vers Total duration et Duration mean.
+        """
+        required_cols_aggregated = {"Behavior_category", "Start (s)", "Duration (s)"}
+        
         if self.file_type == "time_budget":
-            return df
-        else:
-            required_cols = {"Behavior_category", "Start (s)", "Duration (s)"}
-
+            # Cas time_budget
+            required_cols = {"Behavior_category", "Total number of occurences", 
+                            "Total duration (s)", "Duration mean (s)", 
+                            "inter-event intervals mean (s)", "% of total length",
+                            "Time budget duration"}
+            
             if not required_cols.issubset(df.columns):
-                return df  # on ne touche pas si colonnes manquantes
+                return df  # On ne touche pas si colonnes manquantes
+            
+            ta_rows = df[df["Behavior_category"] == "TA."]
+            
+            if len(ta_rows) == 0:
+                return df  # Pas de ligne TA.
+            
+            if len(ta_rows) > 1:
+                # Plusieurs lignes TA. : prendre la première (ou gérer autrement selon besoin)
+                ta_row = ta_rows.iloc[0]
+            else:
+                ta_row = ta_rows.iloc[0]
+            
+            # Vérifier si Total number of occurences == 2
+            if ta_row["Total number of occurences"] == 2:
+                # Récupérer la valeur de inter-event intervals mean (s)
+                inter_event_mean = ta_row["inter-event intervals mean (s)"]
+                
+                # Modifier la ligne
+                df = df.copy()  # Éviter SettingWithCopyWarning
+                idx = ta_row.name  # Index de la ligne
+                
+                # 1. Mettre Total number of occurences à 1
+                df.at[idx, "Total number of occurences"] = 1
+                
+                # 2. Mettre inter-event intervals mean (s) à 0.0
+                df.at[idx, "inter-event intervals mean (s)"] = 0.0
+                
+                # 3. Transférer la valeur à Total duration (s) et Duration mean (s)
+                df.at[idx, "Total duration (s)"] = inter_event_mean
+                df.at[idx, "Duration mean (s)"] = inter_event_mean
+                
+                # 4. Compléter % of total length
+                time_budget_duration = df["Time budget duration"].iloc[0]  # Même valeur pour tous
+                if time_budget_duration > 0:
+                    percentage = (inter_event_mean / time_budget_duration) * 100
+                    df.at[idx, "% of total length"] = percentage
+                else:
+                    df.at[idx, "% of total length"] = 0.0
+            
+            return df
+    
+        else:
+            # Cas aggregated (code existant)
+            if not required_cols_aggregated.issubset(df.columns):
+                return df
 
             ta_rows = df[df["Behavior_category"] == "TA."]
             if len(ta_rows) == 2 and (ta_rows["Duration (s)"] == 0).all():
@@ -166,7 +220,6 @@ class BorisPostprocessor:
                 if "Stop (s)" in df.columns:
                     stop = ta_rows["Stop (s)"].max()
                 else:
-                    # À défaut, on suppose stop=start pour chaque ligne, donc on ne peut pas étendre
                     stop = ta_rows["Start (s)"].max()
 
                 duration = stop - start
@@ -176,11 +229,11 @@ class BorisPostprocessor:
                     new_row["Stop (s)"] = stop
                 new_row["Duration (s)"] = duration
 
-                # On supprime les deux anciennes lignes TA. et on ajoute la ligne fusionnée
                 df = df[df["Behavior_category"] != "TA."]
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
             return df
+
     def enforce_test_start_before_ta(self, df: pd.DataFrame) -> pd.DataFrame:
         """Force Start(Test Gateau en cours) <= Start(TA.) en corrigeant Start si nécessaire.
 
@@ -232,11 +285,12 @@ class BorisPostprocessor:
         Returns:
             Processed DataFrame
         """
-        df = self.remove_columns(df)
+        
         df = self.split_behavior_column(df)
         df = self.fill_numeric_nan(df)
         df = self.merge_zero_duration_ta(df)
         df = self.enforce_test_start_before_ta(df)  # <-- ajout
+        df = self.remove_columns(df)
         
         return df
 

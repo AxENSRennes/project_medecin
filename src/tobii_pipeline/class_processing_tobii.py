@@ -775,6 +775,10 @@ class FirstPreprocessing:
         return self.data
 
 
+"""
+interpoler aussi les artefacts
+"""
+
 class TobiiTimeSeriesPreprocessor:
     """
     Pipeline de preprocessing pour séries temporelles Tobii
